@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 from datetime import datetime
-import pytz # Biblioteca de fuso horário
+from fpdf import FPDF
+import pytz
+import os
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
@@ -10,7 +13,46 @@ st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
 
-# --- TÍTULO ---
+# --- FUNÇÃO: GERAR PDF ---
+def gerar_pdf(df_historico):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Cabeçalho
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, "Relatorio de Controle Glicemico", ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 10, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
+    pdf.ln(10)
+
+    # Inserir Gráfico no PDF
+    if os.path.exists("grafico_temp.png"):
+        pdf.image("grafico_temp.png", x=10, y=40, w=190)
+        pdf.ln(100)
+    
+    # Tabela
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(40, 10, "Data/Hora", 1)
+    pdf.cell(30, 10, "Glicemia", 1)
+    pdf.cell(30, 10, "Carbos", 1)
+    pdf.cell(30, 10, "ICR", 1)
+    pdf.cell(30, 10, "Dose", 1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", size=10)
+    # Itera sobre o DataFrame (invertendo para o mais recente ficar no topo se quiser, ou normal)
+    for index, row in df_historico.iterrows():
+        pdf.cell(40, 10, str(row['Data']), 1)
+        pdf.cell(30, 10, str(row['Glicemia']), 1)
+        pdf.cell(30, 10, str(row['Carbos']), 1)
+        pdf.cell(30, 10, str(row['ICR']), 1)
+        pdf.cell(30, 10, str(row['Dose']), 1)
+        pdf.ln()
+        
+    # Salva temporariamente
+    pdf.output("relatorio_final.pdf")
+
+# --- INTERFACE PRINCIPAL ---
 st.title("💉 Controle de Insulina")
 st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDADE}")
 
@@ -27,44 +69,34 @@ with col2:
 st.write("Escolha o Fator (ICR):")
 icr = st.radio("Quantos gramas 1 unidade cobre?", [8, 10, 15], horizontal=True)
 
-# --- BOTÃO DE CALCULAR ---
+# --- CÁLCULO ---
 if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
     
-    # 1. Cálculo de Correção
+    # Lógica de Cálculo
     if glicemia > ALVO:
         correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
     else:
         correcao = 0
-        
-    # 2. Cálculo da Refeição
+    
     refeicao = carbos / icr
-    
-    # 3. Total
     dose_total = correcao + refeicao
-    
-    # 4. Arredondamento (Regra de 1 em 1)
     dose_final = round(dose_total)
     
-    # --- RESULTADO NA TELA ---
     st.markdown("---")
     
     if glicemia < 70:
         st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
     else:
         st.success(f"## Dose Recomendada: {dose_final} Unidades")
-        
-        # Detalhes (para conferência)
         with st.expander("Ver detalhes do cálculo"):
-            st.write(f"🔹 Para corrigir a glicemia: {correcao:.2f} u")
-            st.write(f"🔹 Para cobrir a comida: {refeicao:.2f} u")
-            st.write(f"🔹 Soma exata: {dose_total:.2f} u")
-            st.caption("O valor foi arredondado para o número inteiro mais próximo.")
+            st.write(f"🔹 Correção: {correcao:.2f} u")
+            st.write(f"🔹 Comida: {refeicao:.2f} u")
+            st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # --- SALVAR NO HISTÓRICO ---
+        # Salvar no Histórico (Sessão)
         if 'historico' not in st.session_state:
             st.session_state.historico = []
             
-        # AJUSTE DE FUSO HORÁRIO (BRASÍLIA)
         fuso_br = pytz.timezone('America/Sao_Paulo')
         data_hora_br = datetime.now(fuso_br).strftime("%d/%m %H:%M")
         
@@ -76,13 +108,40 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             "Dose": dose_final
         })
 
-# --- EXIBIR HISTÓRICO ---
+# --- ÁREA DE RELATÓRIOS E GRÁFICOS ---
 st.write("---")
-st.subheader("Histórico Recente")
+st.subheader("📊 Histórico e Relatórios")
 
-if 'historico' in st.session_state and st.session_state.historico:
-    # Mostra o histórico invertido (o mais recente primeiro)
-    df = pd.DataFrame(st.session_state.historico[::-1])
-    st.table(df)
+if 'historico' in st.session_state and len(st.session_state.historico) > 0:
+    # Cria Tabela de Dados
+    df = pd.DataFrame(st.session_state.historico)
+    
+    # 1. MOSTRAR GRÁFICO
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(df['Data'], df['Glicemia'], marker='o', linestyle='-', color='blue')
+    ax.axhline(y=ALVO, color='red', linestyle='--', label='Alvo')
+    ax.set_title("Evolução da Glicemia")
+    ax.set_ylabel("mg/dL")
+    ax.grid(True)
+    plt.xticks(rotation=45)
+    st.pyplot(fig)
+    
+    # Salva gráfico para usar no PDF
+    plt.savefig("grafico_temp.png")
+    
+    # 2. MOSTRAR TABELA
+    st.dataframe(df.style.highlight_max(axis=0))
+    
+    # 3. BOTÃO DE DOWNLOAD DO PDF
+    gerar_pdf(df)
+    
+    with open("relatorio_final.pdf", "rb") as pdf_file:
+        PDFbyte = pdf_file.read()
+
+    st.download_button(label="📄 Baixar Relatório em PDF",
+                        data=PDFbyte,
+                        file_name="relatorio_insulina.pdf",
+                        mime='application/octet-stream')
+
 else:
-    st.info("Nenhum cálculo feito ainda nesta sessão.")
+    st.info("Faça o primeiro cálculo para gerar o gráfico e o relatório.")
