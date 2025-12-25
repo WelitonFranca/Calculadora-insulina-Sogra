@@ -88,15 +88,15 @@ st.subheader("1. Dados da Medição")
 
 col1, col2 = st.columns(2)
 with col1:
-    glicemia = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=100)
+    # value=None deixa o campo vazio. placeholder="0" mostra o zero cinza.
+    glicemia_input = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=None, placeholder="0")
 with col2:
-    carbos = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=0)
+    carbos_input = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=None, placeholder="0")
 
-# --- LÓGICA DE DATA E HORA COM BOTÃO DE SALVAR ---
+# --- DATA E HORA ---
 st.write("---")
 st.subheader("2. Quando foi?")
 
-# Inicializa variáveis de controle na memória
 if 'modo_manual' not in st.session_state:
     st.session_state.modo_manual = False
 if 'data_fixada' not in st.session_state:
@@ -105,16 +105,13 @@ if 'data_fixada' not in st.session_state:
 fuso_br = pytz.timezone('America/Sao_Paulo')
 agora = datetime.now(fuso_br)
 
-# Lógica de Exibição
 if not st.session_state.modo_manual:
-    # MODO AUTOMÁTICO (MOSTRA SÓ O TEXTO)
     st.info(f"🕒 Horário Automático: **{agora.strftime('%d/%m/%Y %H:%M')}**")
     if st.button("✏️ Alterar Data/Hora"):
         st.session_state.modo_manual = True
         st.rerun()
     data_final_para_salvar = agora
 else:
-    # MODO DE EDIÇÃO (MOSTRA OS CAMPOS E O BOTÃO SALVAR)
     st.warning("✏️ Editando Data e Hora...")
     c1, c2 = st.columns(2)
     d = c1.date_input("Data", value=agora, format="DD/MM/YYYY")
@@ -122,12 +119,10 @@ else:
     
     col_save, col_cancel = st.columns(2)
     
-    # O BOTÃO QUE VOCÊ PEDIU:
     if col_save.button("💾 SALVAR DATA E HORA", type="primary"):
-        # Combina e salva na memória
         data_combinada = datetime.combine(d, t)
         st.session_state.data_fixada = data_combinada
-        st.session_state.modo_manual = "FIXADO" # Estado especial: Manual mas travado
+        st.session_state.modo_manual = "FIXADO"
         st.rerun()
         
     if col_cancel.button("Cancelar"):
@@ -136,9 +131,7 @@ else:
     
     data_final_para_salvar = datetime.combine(d, t)
 
-# ESTADO FIXADO (QUANDO O USUÁRIO JÁ CLICOU EM SALVAR)
 if st.session_state.modo_manual == "FIXADO":
-    # Mostra a data travada e opção de destrancar
     st.success(f"🔒 Data Fixada: **{st.session_state.data_fixada.strftime('%d/%m/%Y %H:%M')}**")
     if st.button("🔄 Liberar / Usar Agora"):
         st.session_state.modo_manual = False
@@ -153,42 +146,48 @@ icr = st.selectbox("Fator ICR", options=lista_opcoes, index=9)
 
 # --- CÁLCULO ---
 if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
-    if glicemia > ALVO:
-        correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
-    else:
-        correcao = 0
     
-    refeicao = carbos / icr
-    dose_total = correcao + refeicao
-    dose_final = round(dose_total)
-    
-    st.markdown("---")
-    
-    if glicemia < 70:
-        st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
-    else:
-        st.success(f"## Dose Recomendada: {dose_final} Unidades")
-        with st.expander("Ver detalhes do cálculo"):
-            st.write(f"🔹 Correção: {correcao:.2f} u")
-            st.write(f"🔹 Comida: {refeicao:.2f} u")
-            st.write(f"🔹 Total exato: {dose_total:.2f} u")
+    # TRATAMENTO DE CAMPOS VAZIOS (Se estiver vazio, vira 0)
+    glicemia = glicemia_input if glicemia_input is not None else 0
+    carbos = carbos_input if carbos_input is not None else 0
 
-        # SALVAR
-        data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
+    # Validação básica
+    if glicemia == 0 and carbos == 0:
+        st.warning("⚠️ Por favor, digite a Glicemia ou os Carboidratos.")
+    else:
+        if glicemia > ALVO:
+            correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
+        else:
+            correcao = 0
         
-        novo_registro = {
-            "Data": data_str,
-            "Glicemia": glicemia,
-            "Carbos": carbos,
-            "ICR": icr,
-            "Dose": dose_final
-        }
+        refeicao = carbos / icr
+        dose_total = correcao + refeicao
+        dose_final = round(dose_total)
         
-        salvar_registro(novo_registro)
-        st.toast("✅ Dados salvos com sucesso!")
+        st.markdown("---")
         
-        # Opcional: Voltar para automático após salvar
-        # st.session_state.modo_manual = False 
+        if glicemia < 70 and glicemia > 0:
+            st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
+        else:
+            st.success(f"## Dose Recomendada: {dose_final} Unidades")
+            with st.expander("Ver detalhes do cálculo"):
+                st.write(f"🔹 Correção: {correcao:.2f} u")
+                st.write(f"🔹 Comida: {refeicao:.2f} u")
+                st.write(f"🔹 Total exato: {dose_total:.2f} u")
+
+            # SALVAR
+            data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
+            
+            novo_registro = {
+                "Data": data_str,
+                "Glicemia": glicemia,
+                "Carbos": carbos,
+                "ICR": icr,
+                "Dose": dose_final
+            }
+            
+            salvar_registro(novo_registro)
+            st.toast("✅ Dados salvos com sucesso!")
 
 # --- ÁREA DE RELATÓRIOS ---
 st.write("---")
@@ -251,3 +250,11 @@ if not df.empty:
                    f"💉 *DOSE: {ultimo['Dose']} unidades*")
         msg_encoded = urllib.parse.quote(msg_zap)
         link_zap = f"https://wa.me/?text={msg_encoded}"
+        col_zap.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
+
+        gerar_pdf(df)
+        with open("relatorio_final.pdf", "rb") as pdf_file:
+            col_pdf.download_button("📄 Baixar PDF", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
+
+else:
+    st.info("Histórico vazio.")
