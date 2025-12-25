@@ -68,18 +68,15 @@ def gerar_pdf(df_historico):
 # --- INTERFACE PRINCIPAL ---
 st.title("💉 Controle de Insulina")
 
-# --- BARRA LATERAL (COFRE DE SEGURANÇA) ---
+# --- BARRA LATERAL (COFRE) ---
 with st.sidebar:
-    st.header("📂 Segurança dos Dados")
-    st.info("Se o app atualizar, use este botão para carregar seus dados antigos.")
-    
-    # Botão de Upload (Restaurar)
+    st.header("📂 Segurança")
     arquivo_upload = st.file_uploader("Restaurar Backup (CSV)", type=["csv"])
     if arquivo_upload is not None:
         try:
             df_restaurado = pd.read_csv(arquivo_upload)
             atualizar_banco(df_restaurado)
-            st.success("✅ Histórico restaurado!")
+            st.success("✅ Restaurado!")
         except:
             st.error("Erro ao ler arquivo.")
 
@@ -95,27 +92,67 @@ with col1:
 with col2:
     carbos = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=0)
 
-# --- DATA E HORA (FORMATO BRASILEIRO) ---
-st.write("Quando foi essa medição?")
-col_data, col_hora = st.columns(2)
+# --- LÓGICA DE DATA E HORA COM BOTÃO DE SALVAR ---
+st.write("---")
+st.subheader("2. Quando foi?")
+
+# Inicializa variáveis de controle na memória
+if 'modo_manual' not in st.session_state:
+    st.session_state.modo_manual = False
+if 'data_fixada' not in st.session_state:
+    st.session_state.data_fixada = datetime.now()
 
 fuso_br = pytz.timezone('America/Sao_Paulo')
 agora = datetime.now(fuso_br)
 
-with col_data:
-    # AQUI ESTÁ A MUDANÇA: format="DD/MM/YYYY"
-    data_input = st.date_input("Data", value=agora, format="DD/MM/YYYY")
-with col_hora:
-    hora_input = st.time_input("Hora", value=agora)
+# Lógica de Exibição
+if not st.session_state.modo_manual:
+    # MODO AUTOMÁTICO (MOSTRA SÓ O TEXTO)
+    st.info(f"🕒 Horário Automático: **{agora.strftime('%d/%m/%Y %H:%M')}**")
+    if st.button("✏️ Alterar Data/Hora"):
+        st.session_state.modo_manual = True
+        st.rerun()
+    data_final_para_salvar = agora
+else:
+    # MODO DE EDIÇÃO (MOSTRA OS CAMPOS E O BOTÃO SALVAR)
+    st.warning("✏️ Editando Data e Hora...")
+    c1, c2 = st.columns(2)
+    d = c1.date_input("Data", value=agora, format="DD/MM/YYYY")
+    t = c2.time_input("Hora", value=agora)
+    
+    col_save, col_cancel = st.columns(2)
+    
+    # O BOTÃO QUE VOCÊ PEDIU:
+    if col_save.button("💾 SALVAR DATA E HORA", type="primary"):
+        # Combina e salva na memória
+        data_combinada = datetime.combine(d, t)
+        st.session_state.data_fixada = data_combinada
+        st.session_state.modo_manual = "FIXADO" # Estado especial: Manual mas travado
+        st.rerun()
+        
+    if col_cancel.button("Cancelar"):
+        st.session_state.modo_manual = False
+        st.rerun()
+    
+    data_final_para_salvar = datetime.combine(d, t)
+
+# ESTADO FIXADO (QUANDO O USUÁRIO JÁ CLICOU EM SALVAR)
+if st.session_state.modo_manual == "FIXADO":
+    # Mostra a data travada e opção de destrancar
+    st.success(f"🔒 Data Fixada: **{st.session_state.data_fixada.strftime('%d/%m/%Y %H:%M')}**")
+    if st.button("🔄 Liberar / Usar Agora"):
+        st.session_state.modo_manual = False
+        st.rerun()
+    data_final_para_salvar = st.session_state.data_fixada
 
 # --- SELEÇÃO DE ICR ---
 st.write("---")
-st.subheader("2. Configuração")
+st.subheader("3. Configuração")
 lista_opcoes = list(range(1, 21))
-icr = st.selectbox("Fator ICR (Quantos gramas 1 unidade cobre?)", options=lista_opcoes, index=9)
+icr = st.selectbox("Fator ICR", options=lista_opcoes, index=9)
 
 # --- CÁLCULO ---
-if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
+if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
     if glicemia > ALVO:
         correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
     else:
@@ -136,12 +173,11 @@ if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
             st.write(f"🔹 Comida: {refeicao:.2f} u")
             st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # SALVAR NO ARQUIVO COM ANO (DD/MM/YYYY HH:MM)
-        data_completa = datetime.combine(data_input, hora_input)
-        data_formatada = data_completa.strftime("%d/%m/%Y %H:%M")
+        # SALVAR
+        data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
         
         novo_registro = {
-            "Data": data_formatada,
+            "Data": data_str,
             "Glicemia": glicemia,
             "Carbos": carbos,
             "ICR": icr,
@@ -149,7 +185,10 @@ if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
         }
         
         salvar_registro(novo_registro)
-        st.toast("✅ Dados salvos!")
+        st.toast("✅ Dados salvos com sucesso!")
+        
+        # Opcional: Voltar para automático após salvar
+        # st.session_state.modo_manual = False 
 
 # --- ÁREA DE RELATÓRIOS ---
 st.write("---")
@@ -158,21 +197,11 @@ st.subheader("📊 Histórico e Ações")
 df = carregar_dados()
 
 if not df.empty:
-    
-    # --- BOTÃO DE BACKUP ---
     st.warning("💾 **Dica:** Baixe o backup regularmente.")
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="💾 BAIXAR BACKUP (Salvar no Celular)",
-        data=csv,
-        file_name="backup_insulina.csv",
-        mime="text/csv",
-        type="secondary"
-    )
+    st.download_button("💾 BAIXAR BACKUP", csv, "backup_insulina.csv", "text/csv")
     
     st.write("---")
-
-    # --- LIXEIRA ---
     st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
     
     df_visual = df.copy()
@@ -196,7 +225,6 @@ if not df.empty:
         # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
         try:
-            # Tenta ordenar considerando o ANO agora
             df['Data_Ordenada'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
             df_sorted = df.sort_values(by='Data_Ordenada')
             ax.plot(df_sorted['Data'], df_sorted['Glicemia'], marker='o', color='blue')
@@ -210,34 +238,16 @@ if not df.empty:
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
         
-        # --- BOTÕES DE EXPORTAÇÃO ---
+        # Exportação
         st.write("### 📤 Enviar Relatório")
         col_zap, col_pdf = st.columns(2)
         
-        # WhatsApp
         ultimo = df.iloc[-1]
         msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
                    f"📅 Data: {ultimo['Data']}\n"
                    f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
                    f"🍞 Carbos: {ultimo['Carbos']}g\n"
-                   f"⚙️ ICR Usado: {ultimo['ICR']}\n"
-                   f"💉 *DOSE APLICADA: {ultimo['Dose']} unidades*\n"
-                   f"------------------\n"
-                   f"Calculado pelo App.")
+                   f"⚙️ ICR: {ultimo['ICR']}\n"
+                   f"💉 *DOSE: {ultimo['Dose']} unidades*")
         msg_encoded = urllib.parse.quote(msg_zap)
         link_zap = f"https://wa.me/?text={msg_encoded}"
-        col_zap.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
-
-        # PDF
-        gerar_pdf(df)
-        with open("relatorio_final.pdf", "rb") as pdf_file:
-            col_pdf.download_button(
-                label="📄 Baixar PDF (Arquivo)",
-                data=pdf_file,
-                file_name="relatorio_insulina.pdf",
-                mime='application/pdf',
-                use_container_width=True
-            )
-
-else:
-    st.info("Histórico vazio. Faça um cálculo para começar.")
