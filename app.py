@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from fpdf import FPDF
-import os
+import pytz # Biblioteca de fuso horário
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
@@ -61,12 +60,16 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             st.write(f"🔹 Soma exata: {dose_total:.2f} u")
             st.caption("O valor foi arredondado para o número inteiro mais próximo.")
 
-        # --- SALVAR NO HISTÓRICO (Temporário na sessão) ---
+        # --- SALVAR NO HISTÓRICO ---
         if 'historico' not in st.session_state:
             st.session_state.historico = []
             
+        # AJUSTE DE FUSO HORÁRIO (BRASÍLIA)
+        fuso_br = pytz.timezone('America/Sao_Paulo')
+        data_hora_br = datetime.now(fuso_br).strftime("%d/%m %H:%M")
+        
         st.session_state.historico.append({
-            "Data": datetime.now().strftime("%d/%m %H:%M"),
+            "Data": data_hora_br,
             "Glicemia": glicemia,
             "Carbos": carbos,
             "ICR": icr,
@@ -76,8 +79,10 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
 # --- EXIBIR HISTÓRICO ---
 st.write("---")
 st.subheader("Histórico Recente")
+
 if 'historico' in st.session_state and st.session_state.historico:
-    df = pd.DataFrame(st.session_state.historico)
+    # Mostra o histórico invertido (o mais recente primeiro)
+    df = pd.DataFrame(st.session_state.historico[::-1])
     st.table(df)
 else:
     st.info("Nenhum cálculo feito ainda nesta sessão.")
