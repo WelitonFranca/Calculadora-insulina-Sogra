@@ -40,7 +40,7 @@ def gerar_pdf(df_historico):
     pdf.ln()
     
     pdf.set_font("Arial", size=10)
-    # Itera sobre o DataFrame (invertendo para o mais recente ficar no topo se quiser, ou normal)
+    # Itera sobre o DataFrame
     for index, row in df_historico.iterrows():
         pdf.cell(40, 10, str(row['Data']), 1)
         pdf.cell(30, 10, str(row['Glicemia']), 1)
@@ -105,7 +105,8 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             "Glicemia": glicemia,
             "Carbos": carbos,
             "ICR": icr,
-            "Dose": dose_final
+            "Dose": dose_final,
+            "Excluir": False # Campo novo para controle
         })
 
 # --- ÁREA DE RELATÓRIOS E GRÁFICOS ---
@@ -113,35 +114,65 @@ st.write("---")
 st.subheader("📊 Histórico e Relatórios")
 
 if 'historico' in st.session_state and len(st.session_state.historico) > 0:
-    # Cria Tabela de Dados
+    
+    # Prepara o DataFrame
     df = pd.DataFrame(st.session_state.historico)
     
-    # 1. MOSTRAR GRÁFICO
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(df['Data'], df['Glicemia'], marker='o', linestyle='-', color='blue')
-    ax.axhline(y=ALVO, color='red', linestyle='--', label='Alvo')
-    ax.set_title("Evolução da Glicemia")
-    ax.set_ylabel("mg/dL")
-    ax.grid(True)
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+    # --- ÁREA DE EDIÇÃO (LIXEIRA) ---
+    st.info("Para apagar um registro errado, marque a caixinha 'Excluir' e clique no botão abaixo.")
     
-    # Salva gráfico para usar no PDF
-    plt.savefig("grafico_temp.png")
+    # Tabela Editável
+    df_editado = st.data_editor(
+        df,
+        column_config={
+            "Excluir": st.column_config.CheckboxColumn(
+                "Excluir?",
+                help="Marque para remover esta linha",
+                default=False,
+            )
+        },
+        disabled=["Data", "Glicemia", "Carbos", "ICR", "Dose"], # Trava as outras colunas
+        hide_index=True,
+    )
     
-    # 2. MOSTRAR TABELA
-    st.dataframe(df.style.highlight_max(axis=0))
-    
-    # 3. BOTÃO DE DOWNLOAD DO PDF
-    gerar_pdf(df)
-    
-    with open("relatorio_final.pdf", "rb") as pdf_file:
-        PDFbyte = pdf_file.read()
+    # Botão de Ação de Exclusão
+    if st.button("🗑️ Apagar Linhas Marcadas"):
+        # Filtra mantendo apenas o que NÃO está marcado para excluir
+        linhas_para_manter = df_editado[df_editado["Excluir"] == False]
+        
+        # Atualiza o histórico removendo a coluna 'Excluir' antes de salvar
+        st.session_state.historico = linhas_para_manter.drop(columns=["Excluir"]).to_dict('records')
+        st.rerun() # Recarrega a página para atualizar o gráfico
 
-    st.download_button(label="📄 Baixar Relatório em PDF",
-                        data=PDFbyte,
-                        file_name="relatorio_insulina.pdf",
-                        mime='application/octet-stream')
+    # --- SÓ MOSTRA GRÁFICO E PDF SE TIVER DADOS (PÓS EXCLUSÃO) ---
+    if len(st.session_state.historico) > 0:
+        df_final = pd.DataFrame(st.session_state.historico)
+        
+        # 1. MOSTRAR GRÁFICO
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(df_final['Data'], df_final['Glicemia'], marker='o', linestyle='-', color='blue')
+        ax.axhline(y=ALVO, color='red', linestyle='--', label='Alvo')
+        ax.set_title("Evolução da Glicemia")
+        ax.set_ylabel("mg/dL")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+        
+        # Salva gráfico para usar no PDF
+        plt.savefig("grafico_temp.png")
+        
+        # 2. BOTÃO DE DOWNLOAD DO PDF
+        gerar_pdf(df_final)
+        
+        with open("relatorio_final.pdf", "rb") as pdf_file:
+            PDFbyte = pdf_file.read()
+
+        st.download_button(label="📄 Baixar Relatório em PDF",
+                            data=PDFbyte,
+                            file_name="relatorio_insulina.pdf",
+                            mime='application/octet-stream')
+    else:
+        st.warning("Histórico vazio.")
 
 else:
     st.info("Faça o primeiro cálculo para gerar o gráfico e o relatório.")
