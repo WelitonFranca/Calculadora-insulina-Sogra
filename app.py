@@ -15,7 +15,7 @@ ALVO = 100
 FATOR_SENSIBILIDADE = 40
 ARQUIVO_DB = "dados_glicemia.csv"
 
-# --- FUNÇÕES DE BANCO DE DADOS (PERSISTÊNCIA) ---
+# --- FUNÇÕES DE BANCO DE DADOS ---
 def carregar_dados():
     if os.path.exists(ARQUIVO_DB):
         return pd.read_csv(ARQUIVO_DB)
@@ -67,27 +67,56 @@ def gerar_pdf(df_historico):
 
 # --- INTERFACE PRINCIPAL ---
 st.title("💉 Controle de Insulina")
+
+# --- BARRA LATERAL (COFRE DE SEGURANÇA) ---
+with st.sidebar:
+    st.header("📂 Segurança dos Dados")
+    st.info("Se o app atualizar, use este botão para carregar seus dados antigos.")
+    
+    # Botão de Upload (Restaurar)
+    arquivo_upload = st.file_uploader("Restaurar Backup (CSV)", type=["csv"])
+    if arquivo_upload is not None:
+        try:
+            df_restaurado = pd.read_csv(arquivo_upload)
+            atualizar_banco(df_restaurado)
+            st.success("✅ Histórico restaurado!")
+        except:
+            st.error("Erro ao ler arquivo.")
+
 st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDADE}")
 
 # --- ENTRADA DE DADOS ---
 st.write("---")
+st.subheader("1. Dados da Medição")
+
+# Colunas para Glicemia e Carbos
 col1, col2 = st.columns(2)
-
 with col1:
-    glicemia = st.number_input("Glicemia Atual (mg/dL)", min_value=0, max_value=600, value=100)
-
+    glicemia = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=100)
 with col2:
     carbos = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=0)
 
-# --- NOVA SELEÇÃO DE ICR (DROPDOWN 1 a 20) ---
-st.write("Escolha o Fator (ICR):")
-# Cria uma lista de números de 1 a 20
+# --- NOVA SEÇÃO: DATA E HORA ---
+st.write("Quando foi essa medição?")
+col_data, col_hora = st.columns(2)
+
+# Pega a hora atual de Brasília para preencher o padrão
+fuso_br = pytz.timezone('America/Sao_Paulo')
+agora = datetime.now(fuso_br)
+
+with col_data:
+    data_input = st.date_input("Data", value=agora)
+with col_hora:
+    hora_input = st.time_input("Hora", value=agora)
+
+# --- SELEÇÃO DE ICR ---
+st.write("---")
+st.subheader("2. Configuração")
 lista_opcoes = list(range(1, 21))
-# O 'index=9' faz com que o número 10 (que é o décimo item) venha selecionado por padrão
-icr = st.selectbox("Quantos gramas 1 unidade cobre?", options=lista_opcoes, index=9)
+icr = st.selectbox("Fator ICR (Quantos gramas 1 unidade cobre?)", options=lista_opcoes, index=9)
 
 # --- CÁLCULO ---
-if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
+if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
     if glicemia > ALVO:
         correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
     else:
@@ -108,12 +137,13 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             st.write(f"🔹 Comida: {refeicao:.2f} u")
             st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # SALVAR NO ARQUIVO
-        fuso_br = pytz.timezone('America/Sao_Paulo')
-        data_hora_br = datetime.now(fuso_br).strftime("%d/%m %H:%M")
+        # SALVAR NO ARQUIVO (USANDO A DATA/HORA ESCOLHIDA)
+        # Combina a data e hora escolhidas pelo usuário
+        data_completa = datetime.combine(data_input, hora_input)
+        data_formatada = data_completa.strftime("%d/%m %H:%M")
         
         novo_registro = {
-            "Data": data_hora_br,
+            "Data": data_formatada,
             "Glicemia": glicemia,
             "Carbos": carbos,
             "ICR": icr,
@@ -121,7 +151,7 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
         }
         
         salvar_registro(novo_registro)
-        st.toast("✅ Dados salvos com sucesso!")
+        st.toast("✅ Dados salvos com a data selecionada!")
 
 # --- ÁREA DE RELATÓRIOS ---
 st.write("---")
@@ -131,6 +161,19 @@ df = carregar_dados()
 
 if not df.empty:
     
+    # --- BOTÃO DE BACKUP ---
+    st.warning("💾 **Dica:** Baixe o backup regularmente.")
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="💾 BAIXAR BACKUP (Salvar no Celular)",
+        data=csv,
+        file_name="backup_insulina.csv",
+        mime="text/csv",
+        type="secondary"
+    )
+    
+    st.write("---")
+
     # --- LIXEIRA ---
     st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
     
@@ -148,16 +191,25 @@ if not df.empty:
         linhas_para_manter = df_editado[df_editado["Excluir"] == False]
         linhas_limpas = linhas_para_manter.drop(columns=["Excluir"])
         atualizar_banco(linhas_limpas)
-        st.success("Linhas apagadas com sucesso!")
+        st.success("Linhas apagadas!")
         st.rerun()
 
     if not df.empty:
         # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
+        # Tenta converter para data para ordenar o gráfico corretamente, caso insira fora de ordem
+        try:
+            df['Data_Ordenada'] = pd.to_datetime(df['Data'], format="%d/%m %H:%M", errors='coerce')
+            df_sorted = df.sort_values(by='Data_Ordenada')
+            ax.plot(df_sorted['Data'], df_sorted['Glicemia'], marker='o', color='blue')
+        except:
+            ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
+            
         ax.axhline(y=ALVO, color='red', linestyle='--')
         ax.set_title("Evolução")
         ax.grid(True)
+        # Rotaciona as datas para caber melhor
+        plt.xticks(rotation=45)
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
         
