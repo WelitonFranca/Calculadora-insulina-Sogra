@@ -5,6 +5,7 @@ from datetime import datetime
 from fpdf import FPDF
 import pytz
 import os
+import urllib.parse
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
@@ -12,25 +13,42 @@ st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 # --- PARÂMETROS FIXOS ---
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
+ARQUIVO_DB = "dados_glicemia.csv" # Nome do nosso banco de dados
+
+# --- FUNÇÕES DE BANCO DE DADOS (PERSISTÊNCIA) ---
+def carregar_dados():
+    """Lê o arquivo CSV se ele existir, senão cria um vazio"""
+    if os.path.exists(ARQUIVO_DB):
+        return pd.read_csv(ARQUIVO_DB)
+    else:
+        return pd.DataFrame(columns=["Data", "Glicemia", "Carbos", "ICR", "Dose"])
+
+def salvar_registro(novo_dado):
+    """Adiciona uma nova linha e salva no arquivo"""
+    df = carregar_dados()
+    novo_df = pd.DataFrame([novo_dado])
+    df_final = pd.concat([df, novo_df], ignore_index=True)
+    df_final.to_csv(ARQUIVO_DB, index=False)
+    return df_final
+
+def atualizar_banco(df_atualizado):
+    """Salva o banco inteiro (usado após excluir linhas)"""
+    df_atualizado.to_csv(ARQUIVO_DB, index=False)
 
 # --- FUNÇÃO: GERAR PDF ---
 def gerar_pdf(df_historico):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Cabeçalho
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, "Relatorio de Controle Glicemico", ln=True, align='C')
     pdf.set_font("Arial", size=10)
     pdf.cell(200, 10, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
     pdf.ln(10)
 
-    # Inserir Gráfico no PDF
     if os.path.exists("grafico_temp.png"):
         pdf.image("grafico_temp.png", x=10, y=40, w=190)
         pdf.ln(100)
     
-    # Tabela
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(40, 10, "Data/Hora", 1)
     pdf.cell(30, 10, "Glicemia", 1)
@@ -40,7 +58,6 @@ def gerar_pdf(df_historico):
     pdf.ln()
     
     pdf.set_font("Arial", size=10)
-    # Itera sobre o DataFrame
     for index, row in df_historico.iterrows():
         pdf.cell(40, 10, str(row['Data']), 1)
         pdf.cell(30, 10, str(row['Glicemia']), 1)
@@ -49,7 +66,6 @@ def gerar_pdf(df_historico):
         pdf.cell(30, 10, str(row['Dose']), 1)
         pdf.ln()
         
-    # Salva temporariamente
     pdf.output("relatorio_final.pdf")
 
 # --- INTERFACE PRINCIPAL ---
@@ -71,8 +87,6 @@ icr = st.radio("Quantos gramas 1 unidade cobre?", [8, 10, 15], horizontal=True)
 
 # --- CÁLCULO ---
 if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
-    
-    # Lógica de Cálculo
     if glicemia > ALVO:
         correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
     else:
@@ -93,86 +107,96 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             st.write(f"🔹 Comida: {refeicao:.2f} u")
             st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # Salvar no Histórico (Sessão)
-        if 'historico' not in st.session_state:
-            st.session_state.historico = []
-            
+        # SALVAR NO ARQUIVO (PERSISTÊNCIA)
         fuso_br = pytz.timezone('America/Sao_Paulo')
         data_hora_br = datetime.now(fuso_br).strftime("%d/%m %H:%M")
         
-        st.session_state.historico.append({
+        novo_registro = {
             "Data": data_hora_br,
             "Glicemia": glicemia,
             "Carbos": carbos,
             "ICR": icr,
-            "Dose": dose_final,
-            "Excluir": False # Campo novo para controle
-        })
+            "Dose": dose_final
+        }
+        
+        salvar_registro(novo_registro)
+        st.toast("✅ Dados salvos com sucesso!")
 
-# --- ÁREA DE RELATÓRIOS E GRÁFICOS ---
+# --- ÁREA DE RELATÓRIOS ---
 st.write("---")
-st.subheader("📊 Histórico e Relatórios")
+st.subheader("📊 Histórico e Ações")
 
-if 'historico' in st.session_state and len(st.session_state.historico) > 0:
+# Carrega os dados do arquivo sempre que a tela atualiza
+df = carregar_dados()
+
+if not df.empty:
     
-    # Prepara o DataFrame
-    df = pd.DataFrame(st.session_state.historico)
+    # --- LIXEIRA (EDIÇÃO) ---
+    st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
     
-    # --- ÁREA DE EDIÇÃO (LIXEIRA) ---
-    st.info("Para apagar um registro errado, marque a caixinha 'Excluir' e clique no botão abaixo.")
+    # Adiciona coluna de controle visualmente (sem salvar no banco ainda)
+    df_visual = df.copy()
+    df_visual["Excluir"] = False
     
-    # Tabela Editável
     df_editado = st.data_editor(
-        df,
-        column_config={
-            "Excluir": st.column_config.CheckboxColumn(
-                "Excluir?",
-                help="Marque para remover esta linha",
-                default=False,
-            )
-        },
-        disabled=["Data", "Glicemia", "Carbos", "ICR", "Dose"], # Trava as outras colunas
+        df_visual,
+        column_config={"Excluir": st.column_config.CheckboxColumn("Excluir?", default=False)},
+        disabled=["Data", "Glicemia", "Carbos", "ICR", "Dose"],
         hide_index=True,
     )
     
-    # Botão de Ação de Exclusão
+    # Botão de Exclusão
     if st.button("🗑️ Apagar Linhas Marcadas"):
-        # Filtra mantendo apenas o que NÃO está marcado para excluir
+        # Filtra apenas o que NÃO foi marcado
         linhas_para_manter = df_editado[df_editado["Excluir"] == False]
         
-        # Atualiza o histórico removendo a coluna 'Excluir' antes de salvar
-        st.session_state.historico = linhas_para_manter.drop(columns=["Excluir"]).to_dict('records')
-        st.rerun() # Recarrega a página para atualizar o gráfico
+        # Remove a coluna 'Excluir' antes de salvar no arquivo
+        linhas_limpas = linhas_para_manter.drop(columns=["Excluir"])
+        
+        # Atualiza o arquivo CSV
+        atualizar_banco(linhas_limpas)
+        st.success("Linhas apagadas com sucesso!")
+        st.rerun() # Recarrega a página para mostrar a tabela limpa
 
-    # --- SÓ MOSTRA GRÁFICO E PDF SE TIVER DADOS (PÓS EXCLUSÃO) ---
-    if len(st.session_state.historico) > 0:
-        df_final = pd.DataFrame(st.session_state.historico)
-        
-        # 1. MOSTRAR GRÁFICO
+    # --- VISUALIZAÇÃO (GRÁFICO E PDF) ---
+    # Só mostra se ainda tiver dados após a exclusão
+    if not df.empty:
+        # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(df_final['Data'], df_final['Glicemia'], marker='o', linestyle='-', color='blue')
-        ax.axhline(y=ALVO, color='red', linestyle='--', label='Alvo')
-        ax.set_title("Evolução da Glicemia")
-        ax.set_ylabel("mg/dL")
+        ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
+        ax.axhline(y=ALVO, color='red', linestyle='--')
+        ax.set_title("Evolução")
         ax.grid(True)
-        plt.xticks(rotation=45)
         st.pyplot(fig)
-        
-        # Salva gráfico para usar no PDF
         plt.savefig("grafico_temp.png")
         
-        # 2. BOTÃO DE DOWNLOAD DO PDF
-        gerar_pdf(df_final)
+        # --- BOTÕES DE EXPORTAÇÃO ---
+        st.write("### 📤 Enviar Relatório")
+        col_zap, col_pdf = st.columns(2)
         
-        with open("relatorio_final.pdf", "rb") as pdf_file:
-            PDFbyte = pdf_file.read()
+        # 1. WhatsApp
+        ultimo = df.iloc[-1] # Pega o último registro real do banco
+        msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
+                   f"📅 Data: {ultimo['Data']}\n"
+                   f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
+                   f"🍞 Carbos: {ultimo['Carbos']}g\n"
+                   f"💉 *DOSE APLICADA: {ultimo['Dose']} unidades*\n"
+                   f"------------------\n"
+                   f"Calculado pelo App.")
+        msg_encoded = urllib.parse.quote(msg_zap)
+        link_zap = f"https://wa.me/?text={msg_encoded}"
+        col_zap.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
 
-        st.download_button(label="📄 Baixar Relatório em PDF",
-                            data=PDFbyte,
-                            file_name="relatorio_insulina.pdf",
-                            mime='application/octet-stream')
-    else:
-        st.warning("Histórico vazio.")
+        # 2. PDF
+        gerar_pdf(df)
+        with open("relatorio_final.pdf", "rb") as pdf_file:
+            col_pdf.download_button(
+                label="📄 Baixar PDF (Arquivo)",
+                data=pdf_file,
+                file_name="relatorio_insulina.pdf",
+                mime='application/pdf',
+                use_container_width=True
+            )
 
 else:
-    st.info("Faça o primeiro cálculo para gerar o gráfico e o relatório.")
+    st.info("Histórico vazio. Faça um cálculo para começar.")
