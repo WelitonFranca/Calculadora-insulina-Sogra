@@ -13,18 +13,16 @@ st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 # --- PARÂMETROS FIXOS ---
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
-ARQUIVO_DB = "dados_glicemia.csv" # Nome do nosso banco de dados
+ARQUIVO_DB = "dados_glicemia.csv"
 
 # --- FUNÇÕES DE BANCO DE DADOS (PERSISTÊNCIA) ---
 def carregar_dados():
-    """Lê o arquivo CSV se ele existir, senão cria um vazio"""
     if os.path.exists(ARQUIVO_DB):
         return pd.read_csv(ARQUIVO_DB)
     else:
         return pd.DataFrame(columns=["Data", "Glicemia", "Carbos", "ICR", "Dose"])
 
 def salvar_registro(novo_dado):
-    """Adiciona uma nova linha e salva no arquivo"""
     df = carregar_dados()
     novo_df = pd.DataFrame([novo_dado])
     df_final = pd.concat([df, novo_df], ignore_index=True)
@@ -32,7 +30,6 @@ def salvar_registro(novo_dado):
     return df_final
 
 def atualizar_banco(df_atualizado):
-    """Salva o banco inteiro (usado após excluir linhas)"""
     df_atualizado.to_csv(ARQUIVO_DB, index=False)
 
 # --- FUNÇÃO: GERAR PDF ---
@@ -82,8 +79,12 @@ with col1:
 with col2:
     carbos = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=0)
 
+# --- NOVA SELEÇÃO DE ICR (DROPDOWN 1 a 20) ---
 st.write("Escolha o Fator (ICR):")
-icr = st.radio("Quantos gramas 1 unidade cobre?", [8, 10, 15], horizontal=True)
+# Cria uma lista de números de 1 a 20
+lista_opcoes = list(range(1, 21))
+# O 'index=9' faz com que o número 10 (que é o décimo item) venha selecionado por padrão
+icr = st.selectbox("Quantos gramas 1 unidade cobre?", options=lista_opcoes, index=9)
 
 # --- CÁLCULO ---
 if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
@@ -107,7 +108,7 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
             st.write(f"🔹 Comida: {refeicao:.2f} u")
             st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # SALVAR NO ARQUIVO (PERSISTÊNCIA)
+        # SALVAR NO ARQUIVO
         fuso_br = pytz.timezone('America/Sao_Paulo')
         data_hora_br = datetime.now(fuso_br).strftime("%d/%m %H:%M")
         
@@ -126,15 +127,13 @@ if st.button("CALCULAR DOSE", type="primary", use_container_width=True):
 st.write("---")
 st.subheader("📊 Histórico e Ações")
 
-# Carrega os dados do arquivo sempre que a tela atualiza
 df = carregar_dados()
 
 if not df.empty:
     
-    # --- LIXEIRA (EDIÇÃO) ---
+    # --- LIXEIRA ---
     st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
     
-    # Adiciona coluna de controle visualmente (sem salvar no banco ainda)
     df_visual = df.copy()
     df_visual["Excluir"] = False
     
@@ -145,21 +144,13 @@ if not df.empty:
         hide_index=True,
     )
     
-    # Botão de Exclusão
     if st.button("🗑️ Apagar Linhas Marcadas"):
-        # Filtra apenas o que NÃO foi marcado
         linhas_para_manter = df_editado[df_editado["Excluir"] == False]
-        
-        # Remove a coluna 'Excluir' antes de salvar no arquivo
         linhas_limpas = linhas_para_manter.drop(columns=["Excluir"])
-        
-        # Atualiza o arquivo CSV
         atualizar_banco(linhas_limpas)
         st.success("Linhas apagadas com sucesso!")
-        st.rerun() # Recarrega a página para mostrar a tabela limpa
+        st.rerun()
 
-    # --- VISUALIZAÇÃO (GRÁFICO E PDF) ---
-    # Só mostra se ainda tiver dados após a exclusão
     if not df.empty:
         # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -174,12 +165,13 @@ if not df.empty:
         st.write("### 📤 Enviar Relatório")
         col_zap, col_pdf = st.columns(2)
         
-        # 1. WhatsApp
-        ultimo = df.iloc[-1] # Pega o último registro real do banco
+        # WhatsApp
+        ultimo = df.iloc[-1]
         msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
                    f"📅 Data: {ultimo['Data']}\n"
                    f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
                    f"🍞 Carbos: {ultimo['Carbos']}g\n"
+                   f"⚙️ ICR Usado: {ultimo['ICR']}\n"
                    f"💉 *DOSE APLICADA: {ultimo['Dose']} unidades*\n"
                    f"------------------\n"
                    f"Calculado pelo App.")
@@ -187,7 +179,7 @@ if not df.empty:
         link_zap = f"https://wa.me/?text={msg_encoded}"
         col_zap.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
 
-        # 2. PDF
+        # PDF
         gerar_pdf(df)
         with open("relatorio_final.pdf", "rb") as pdf_file:
             col_pdf.download_button(
