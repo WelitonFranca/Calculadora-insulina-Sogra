@@ -89,23 +89,22 @@ st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDA
 st.write("---")
 st.subheader("1. Dados da Medição")
 
-# Colunas para Glicemia e Carbos
 col1, col2 = st.columns(2)
 with col1:
     glicemia = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=100)
 with col2:
     carbos = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=0)
 
-# --- NOVA SEÇÃO: DATA E HORA ---
+# --- DATA E HORA (FORMATO BRASILEIRO) ---
 st.write("Quando foi essa medição?")
 col_data, col_hora = st.columns(2)
 
-# Pega a hora atual de Brasília para preencher o padrão
 fuso_br = pytz.timezone('America/Sao_Paulo')
 agora = datetime.now(fuso_br)
 
 with col_data:
-    data_input = st.date_input("Data", value=agora)
+    # AQUI ESTÁ A MUDANÇA: format="DD/MM/YYYY"
+    data_input = st.date_input("Data", value=agora, format="DD/MM/YYYY")
 with col_hora:
     hora_input = st.time_input("Hora", value=agora)
 
@@ -137,10 +136,9 @@ if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
             st.write(f"🔹 Comida: {refeicao:.2f} u")
             st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-        # SALVAR NO ARQUIVO (USANDO A DATA/HORA ESCOLHIDA)
-        # Combina a data e hora escolhidas pelo usuário
+        # SALVAR NO ARQUIVO COM ANO (DD/MM/YYYY HH:MM)
         data_completa = datetime.combine(data_input, hora_input)
-        data_formatada = data_completa.strftime("%d/%m %H:%M")
+        data_formatada = data_completa.strftime("%d/%m/%Y %H:%M")
         
         novo_registro = {
             "Data": data_formatada,
@@ -151,7 +149,7 @@ if st.button("CALCULAR E SALVAR", type="primary", use_container_width=True):
         }
         
         salvar_registro(novo_registro)
-        st.toast("✅ Dados salvos com a data selecionada!")
+        st.toast("✅ Dados salvos!")
 
 # --- ÁREA DE RELATÓRIOS ---
 st.write("---")
@@ -197,9 +195,9 @@ if not df.empty:
     if not df.empty:
         # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
-        # Tenta converter para data para ordenar o gráfico corretamente, caso insira fora de ordem
         try:
-            df['Data_Ordenada'] = pd.to_datetime(df['Data'], format="%d/%m %H:%M", errors='coerce')
+            # Tenta ordenar considerando o ANO agora
+            df['Data_Ordenada'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
             df_sorted = df.sort_values(by='Data_Ordenada')
             ax.plot(df_sorted['Data'], df_sorted['Glicemia'], marker='o', color='blue')
         except:
@@ -208,7 +206,6 @@ if not df.empty:
         ax.axhline(y=ALVO, color='red', linestyle='--')
         ax.set_title("Evolução")
         ax.grid(True)
-        # Rotaciona as datas para caber melhor
         plt.xticks(rotation=45)
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
