@@ -19,9 +19,13 @@ st.markdown("""
         }
         .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div::after {
             content: "📂 Clique aqui para Recuperar Backup";
-            font-size: 16px;
-            font-weight: bold;
-            color: #333;
+            font-size: 18px; /* Aumentei a fonte */
+            font-weight: 900; /* Negrito extra forte */
+            color: #000000; /* Preto absoluto */
+            background-color: rgba(255, 255, 255, 0.8); /* Fundo branco suave atrás do texto */
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: block;
         }
         /* Esconde o texto "Limit 200MB" */
         .stFileUploader small {
