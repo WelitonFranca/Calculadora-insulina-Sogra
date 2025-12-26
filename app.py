@@ -10,28 +10,25 @@ import os
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 
-# --- TRUQUE DE CSS (ESTILO) PARA MUDAR O TEXTO DO UPLOAD ---
+# --- TRUQUE DE CSS (ESTILO) ---
 st.markdown("""
     <style>
-        /* Esconde o texto padrão "Drag and drop file here" */
         .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div > span {
             display: none;
         }
         .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div::after {
             content: "📂 Clique aqui para Recuperar Backup";
-            font-size: 18px; /* Aumentei a fonte */
-            font-weight: 900; /* Negrito extra forte */
-            color: #000000; /* Preto absoluto */
-            background-color: rgba(255, 255, 255, 0.8); /* Fundo branco suave atrás do texto */
+            font-size: 18px;
+            font-weight: 900;
+            color: #000000;
+            background-color: rgba(255, 255, 255, 0.8);
             padding: 5px 10px;
             border-radius: 5px;
             display: block;
         }
-        /* Esconde o texto "Limit 200MB" */
         .stFileUploader small {
             display: none;
         }
-        /* Deixa o botão mais bonito */
         .stButton button {
             width: 100%;
         }
@@ -82,7 +79,6 @@ def gerar_pdf(df_historico):
 # --- INTERFACE PRINCIPAL ---
 st.title("💉 Controle de Insulina")
 
-# --- BARRA LATERAL (Informações) ---
 with st.sidebar:
     st.info("Este aplicativo funciona de modo privado. Seus dados ficam salvos apenas no seu celular.")
 
@@ -178,7 +174,6 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
                 st.write(f"🔹 Comida: {refeicao:.2f} u")
                 st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-            # SALVAR NA MEMÓRIA DA SESSÃO
             data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
             
             novo_registro = {
@@ -198,11 +193,18 @@ st.subheader("💾 Gerenciamento de Dados")
 
 col_fazer_backup, col_recuperar_backup = st.columns(2)
 
-# 1. BOTÃO FAZER BACKUP (DOWNLOAD)
 with col_fazer_backup:
     st.write("**Salvar no Celular**")
     if len(st.session_state.historico) > 0:
+        # Ordena antes de salvar o backup também
         df_export = pd.DataFrame(st.session_state.historico)
+        try:
+            df_export['_dt'] = pd.to_datetime(df_export['Data'], format="%d/%m/%Y %H:%M")
+            df_export = df_export.sort_values(by='_dt')
+            df_export = df_export.drop(columns=['_dt'])
+        except:
+            pass
+            
         csv = df_export.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="⬇️ Fazer Backup",
@@ -215,10 +217,8 @@ with col_fazer_backup:
     else:
         st.info("Sem dados para salvar.")
 
-# 2. BOTÃO RECUPERAR BACKUP (UPLOAD)
 with col_recuperar_backup:
     st.write("**Restaurar Antigo**")
-    # O label aqui fica vazio porque o CSS lá em cima vai colocar o texto novo
     arquivo_upload = st.file_uploader(" ", type=["csv"], label_visibility="collapsed")
     if arquivo_upload is not None:
         try:
@@ -234,7 +234,18 @@ st.subheader("📊 Histórico e Ações")
 
 if len(st.session_state.historico) > 0:
     
+    # --- AQUI ESTÁ A MÁGICA DA ORDENAÇÃO ---
     df = pd.DataFrame(st.session_state.historico)
+    
+    try:
+        # Cria coluna temporária de data real
+        df['_data_temp'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
+        # Ordena: Mais antigo -> Mais novo
+        df = df.sort_values(by='_data_temp')
+        # Remove a coluna temporária para não aparecer na tabela
+        df = df.drop(columns=['_data_temp'])
+    except:
+        pass # Se der erro, mantém a ordem original
     
     # --- LIXEIRA ---
     st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
@@ -256,15 +267,9 @@ if len(st.session_state.historico) > 0:
         st.rerun()
 
     if len(st.session_state.historico) > 0:
-        # Gráfico
+        # Gráfico (Usa o mesmo DF já ordenado)
         fig, ax = plt.subplots(figsize=(8, 4))
-        try:
-            df['Data_Ordenada'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
-            df_sorted = df.sort_values(by='Data_Ordenada')
-            ax.plot(df_sorted['Data'], df_sorted['Glicemia'], marker='o', color='blue')
-        except:
-            ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
-            
+        ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
         ax.axhline(y=ALVO, color='red', linestyle='--')
         ax.set_title("Evolução")
         ax.grid(True)
@@ -276,7 +281,9 @@ if len(st.session_state.historico) > 0:
         st.write("### 📤 Enviar Relatório")
         col_zap, col_pdf = st.columns(2)
         
+        # Pega o ÚLTIMO registro (que agora é o mais recente de verdade)
         ultimo = df.iloc[-1]
+        
         msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
                    f"📅 Data: {ultimo['Data']}\n"
                    f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
