@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from fpdf import FPDF
 import pytz
-import os
 import urllib.parse
+import os
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
@@ -13,24 +13,10 @@ st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 # --- PARÂMETROS FIXOS ---
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
-ARQUIVO_DB = "dados_glicemia.csv"
 
-# --- FUNÇÕES DE BANCO DE DADOS ---
-def carregar_dados():
-    if os.path.exists(ARQUIVO_DB):
-        return pd.read_csv(ARQUIVO_DB)
-    else:
-        return pd.DataFrame(columns=["Data", "Glicemia", "Carbos", "ICR", "Dose"])
-
-def salvar_registro(novo_dado):
-    df = carregar_dados()
-    novo_df = pd.DataFrame([novo_dado])
-    df_final = pd.concat([df, novo_df], ignore_index=True)
-    df_final.to_csv(ARQUIVO_DB, index=False)
-    return df_final
-
-def atualizar_banco(df_atualizado):
-    df_atualizado.to_csv(ARQUIVO_DB, index=False)
+# --- INICIALIZAÇÃO DA MEMÓRIA (SESSÃO) ---
+if 'historico' not in st.session_state:
+    st.session_state.historico = []
 
 # --- FUNÇÃO: GERAR PDF ---
 def gerar_pdf(df_historico):
@@ -68,17 +54,9 @@ def gerar_pdf(df_historico):
 # --- INTERFACE PRINCIPAL ---
 st.title("💉 Controle de Insulina")
 
-# --- BARRA LATERAL (COFRE) ---
+# --- BARRA LATERAL (Informações) ---
 with st.sidebar:
-    st.header("📂 Segurança")
-    arquivo_upload = st.file_uploader("Restaurar Backup (CSV)", type=["csv"])
-    if arquivo_upload is not None:
-        try:
-            df_restaurado = pd.read_csv(arquivo_upload)
-            atualizar_banco(df_restaurado)
-            st.success("✅ Restaurado!")
-        except:
-            st.error("Erro ao ler arquivo.")
+    st.info("Este aplicativo funciona de modo privado. Seus dados ficam salvos apenas no seu celular.")
 
 st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDADE}")
 
@@ -88,7 +66,6 @@ st.subheader("1. Dados da Medição")
 
 col1, col2 = st.columns(2)
 with col1:
-    # value=None deixa o campo vazio. placeholder="0" mostra o zero cinza.
     glicemia_input = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=None, placeholder="0")
 with col2:
     carbos_input = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=None, placeholder="0")
@@ -147,13 +124,11 @@ icr = st.selectbox("Fator ICR", options=lista_opcoes, index=9)
 # --- CÁLCULO ---
 if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
     
-    # TRATAMENTO DE CAMPOS VAZIOS (Se estiver vazio, vira 0)
     glicemia = glicemia_input if glicemia_input is not None else 0
     carbos = carbos_input if carbos_input is not None else 0
 
-    # Validação básica
     if glicemia == 0 and carbos == 0:
-        st.warning("⚠️ Por favor, digite a Glicemia ou os Carboidratos.")
+        st.warning("⚠️ Digite a Glicemia ou os Carboidratos.")
     else:
         if glicemia > ALVO:
             correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
@@ -166,7 +141,7 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         
         st.markdown("---")
         
-        if glicemia < 70 and glicemia > 0:
+        if glicemia &lt; 70 and glicemia > 0:
             st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
         else:
             st.success(f"## Dose Recomendada: {dose_final} Unidades")
@@ -175,7 +150,7 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
                 st.write(f"🔹 Comida: {refeicao:.2f} u")
                 st.write(f"🔹 Total exato: {dose_total:.2f} u")
 
-            # SALVAR
+            # SALVAR NA MEMÓRIA DA SESSÃO
             data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
             
             novo_registro = {
@@ -186,21 +161,53 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
                 "Dose": dose_final
             }
             
-            salvar_registro(novo_registro)
-            st.toast("✅ Dados salvos com sucesso!")
+            st.session_state.historico.append(novo_registro)
+            st.toast("✅ Adicionado à lista!")
+
+# --- ÁREA DE GERENCIAMENTO DE DADOS (BACKUP) ---
+st.write("---")
+st.subheader("💾 Gerenciamento de Dados")
+
+col_fazer_backup, col_recuperar_backup = st.columns(2)
+
+# 1. BOTÃO FAZER BACKUP (DOWNLOAD)
+with col_fazer_backup:
+    st.write("**Salvar no Celular**")
+    if len(st.session_state.historico) > 0:
+        df_export = pd.DataFrame(st.session_state.historico)
+        csv = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Fazer Backup",
+            data=csv,
+            file_name="backup_insulina.csv",
+            mime="text/csv",
+            type="primary",
+            use_container_width=True
+        )
+    else:
+        st.info("Sem dados para salvar.")
+
+# 2. BOTÃO RECUPERAR BACKUP (UPLOAD)
+with col_recuperar_backup:
+    st.write("**Restaurar Antigo**")
+    arquivo_upload = st.file_uploader("Recuperar Backup", type=["csv"], label_visibility="collapsed")
+    if arquivo_upload is not None:
+        try:
+            df_restaurado = pd.read_csv(arquivo_upload)
+            st.session_state.historico = df_restaurado.to_dict('records')
+            st.success("✅ Backup Restaurado!")
+        except:
+            st.error("Arquivo inválido.")
 
 # --- ÁREA DE RELATÓRIOS ---
 st.write("---")
 st.subheader("📊 Histórico e Ações")
 
-df = carregar_dados()
-
-if not df.empty:
-    st.warning("💾 **Dica:** Baixe o backup regularmente.")
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("💾 BAIXAR BACKUP", csv, "backup_insulina.csv", "text/csv")
+if len(st.session_state.historico) > 0:
     
-    st.write("---")
+    df = pd.DataFrame(st.session_state.historico)
+    
+    # --- LIXEIRA ---
     st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
     
     df_visual = df.copy()
@@ -215,12 +222,11 @@ if not df.empty:
     
     if st.button("🗑️ Apagar Linhas Marcadas"):
         linhas_para_manter = df_editado[df_editado["Excluir"] == False]
-        linhas_limpas = linhas_para_manter.drop(columns=["Excluir"])
-        atualizar_banco(linhas_limpas)
+        st.session_state.historico = linhas_para_manter.drop(columns=["Excluir"]).to_dict('records')
         st.success("Linhas apagadas!")
         st.rerun()
 
-    if not df.empty:
+    if len(st.session_state.historico) > 0:
         # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
         try:
@@ -257,4 +263,15 @@ if not df.empty:
             col_pdf.download_button("📄 Baixar PDF", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
 
 else:
-    st.info("Histórico vazio.")
+    st.info("Histórico vazio. Faça um cálculo ou recupere um backup.")
+
+# --- RODAPÉ PERSONALIZADO ---
+st.write("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: grey; padding: 20px;'>
+        Desenvolvido por <b>Weliton França</b> - Genro da Marina ❤️
+    </div>
+    """,
+    unsafe_allow_html=True
+)
