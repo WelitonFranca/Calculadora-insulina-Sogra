@@ -49,31 +49,21 @@ def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         return pd.read_csv(ARQUIVO_USUARIOS)
     else:
-        # Agora temos a coluna 'palavra_secreta'
         return pd.DataFrame(columns=["usuario", "senha", "palavra_secreta"])
 
 def cadastrar_usuario(usuario, senha, palavra_secreta):
-    # REGRAS DE VALIDAÇÃO
     usuario = usuario.lower().strip().replace(" ", "")
     palavra_secreta = palavra_secreta.lower().strip()
     
-    if len(usuario) < 3:
-        return False, "❌ O usuário deve ter pelo menos 3 letras."
-    if len(senha) < 4:
-        return False, "❌ A senha deve ter pelo menos 4 caracteres."
-    if len(palavra_secreta) < 2:
-        return False, "❌ A palavra secreta é muito curta."
+    if len(usuario) < 3: return False, "❌ O usuário deve ter pelo menos 3 letras."
+    if len(senha) < 4: return False, "❌ A senha deve ter pelo menos 4 caracteres."
+    if len(palavra_secreta) < 2: return False, "❌ A palavra secreta é muito curta."
     
     df = carregar_usuarios()
     if usuario in df['usuario'].values:
         return False, "❌ Este usuário já existe! Tente outro."
     
-    novo_usuario = pd.DataFrame([{
-        "usuario": usuario, 
-        "senha": senha,
-        "palavra_secreta": palavra_secreta
-    }])
-    
+    novo_usuario = pd.DataFrame([{"usuario": usuario, "senha": senha, "palavra_secreta": palavra_secreta}])
     df_final = pd.concat([df, novo_usuario], ignore_index=True)
     df_final.to_csv(ARQUIVO_USUARIOS, index=False)
     return True, "✅ Cadastro realizado com sucesso!"
@@ -88,14 +78,9 @@ def verificar_login(usuario, senha):
 def resetar_senha(usuario, palavra_secreta, nova_senha):
     usuario = usuario.lower().strip()
     palavra_secreta = palavra_secreta.lower().strip()
-    
     df = carregar_usuarios()
-    
-    # Verifica se usuário e palavra secreta batem
     mask = (df['usuario'] == usuario) & (df['palavra_secreta'] == palavra_secreta)
-    
     if not df[mask].empty:
-        # Atualiza a senha
         df.loc[mask, 'senha'] = nova_senha
         df.to_csv(ARQUIVO_USUARIOS, index=False)
         return True, "✅ Senha alterada com sucesso!"
@@ -111,29 +96,38 @@ if st.session_state.usuario_logado is None:
     
     tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
     
-    # ABA 1: LOGIN
+    # ABA 1: LOGIN (AGORA COM FORMULÁRIO PARA O NAVEGADOR SALVAR)
     with tab1:
         st.write("Acesse seus dados:")
-        login_user = st.text_input("Usuário", key="login_u").lower().strip()
-        login_pass = st.text_input("Senha", type="password", key="login_p")
         
-        if st.button("ENTRAR", type="primary"):
+        # O st.form avisa o navegador que isso é um login
+        with st.form("form_login"):
+            login_user = st.text_input("Usuário", key="login_u").lower().strip()
+            login_pass = st.text_input("Senha", type="password", key="login_p")
+            
+            # Botão de envio do formulário
+            submit_login = st.form_submit_button("ENTRAR", type="primary")
+        
+        if submit_login:
             if verificar_login(login_user, login_pass):
                 st.session_state.usuario_logado = login_user
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos.")
+        
+        st.caption("💡 Dica: Quando o navegador perguntar 'Salvar Senha?', clique em Sim para entrar automático na próxima vez.")
 
     # ABA 2: CADASTRO
     with tab2:
         st.write("📝 **Crie sua conta:**")
-        novo_user = st.text_input("Escolha um Usuário (min 3 letras)", key="new_u")
-        novo_pass = st.text_input("Escolha uma Senha (min 4 digitos)", type="password", key="new_p")
+        with st.form("form_cadastro"):
+            novo_user = st.text_input("Escolha um Usuário (min 3 letras)")
+            novo_pass = st.text_input("Escolha uma Senha (min 4 digitos)", type="password")
+            st.markdown("**Segurança:** Palavra secreta para recuperar senha (Ex: nome do cachorro).")
+            nova_secret = st.text_input("Palavra Secreta", type="password")
+            submit_cadastro = st.form_submit_button("CRIAR CONTA")
         
-        st.info("💡 **Segurança:** Crie uma palavra secreta para recuperar sua senha caso esqueça (Ex: nome da mãe, comida favorita).")
-        nova_secret = st.text_input("Palavra Secreta", key="new_s", type="password")
-        
-        if st.button("CRIAR CONTA"):
+        if submit_cadastro:
             if novo_user and novo_pass and nova_secret:
                 sucesso, mensagem = cadastrar_usuario(novo_user, novo_pass, nova_secret)
                 if sucesso:
@@ -143,16 +137,18 @@ if st.session_state.usuario_logado is None:
                 else:
                     st.error(mensagem)
             else:
-                st.warning("Preencha todos os campos, inclusive a Palavra Secreta.")
+                st.warning("Preencha todos os campos.")
 
-    # ABA 3: RECUPERAÇÃO (PALAVRA SECRETA)
+    # ABA 3: RECUPERAÇÃO
     with tab3:
-        st.write("Esqueceu a senha? Use sua palavra secreta para redefinir.")
-        rec_user = st.text_input("Qual seu usuário?", key="rec_u").lower().strip()
-        rec_secret = st.text_input("Qual sua Palavra Secreta?", key="rec_s", type="password")
-        rec_new_pass = st.text_input("Nova Senha", key="rec_np", type="password")
+        st.write("Esqueceu a senha?")
+        with st.form("form_recuperacao"):
+            rec_user = st.text_input("Qual seu usuário?").lower().strip()
+            rec_secret = st.text_input("Qual sua Palavra Secreta?", type="password")
+            rec_new_pass = st.text_input("Nova Senha", type="password")
+            submit_reset = st.form_submit_button("REDEFINIR SENHA")
         
-        if st.button("REDEFINIR SENHA"):
+        if submit_reset:
             if rec_user and rec_secret and rec_new_pass:
                 if len(rec_new_pass) < 4:
                     st.error("A nova senha deve ter no mínimo 4 caracteres.")
@@ -160,7 +156,7 @@ if st.session_state.usuario_logado is None:
                     sucesso, msg = resetar_senha(rec_user, rec_secret, rec_new_pass)
                     if sucesso:
                         st.success(msg)
-                        st.info("Senha atualizada! Volte na aba 'Entrar' e use a nova senha.")
+                        st.info("Senha atualizada! Volte na aba 'Entrar'.")
                     else:
                         st.error(msg)
             else:
