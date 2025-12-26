@@ -10,6 +10,30 @@ import os
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
 
+# --- TRUQUE DE CSS (ESTILO) PARA MUDAR O TEXTO DO UPLOAD ---
+st.markdown("""
+    <style>
+        /* Esconde o texto padrão "Drag and drop file here" */
+        .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div > span {
+            display: none;
+        }
+        .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div::after {
+            content: "📂 Clique aqui para Recuperar Backup";
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }
+        /* Esconde o texto "Limit 200MB" */
+        .stFileUploader small {
+            display: none;
+        }
+        /* Deixa o botão mais bonito */
+        .stButton button {
+            width: 100%;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- PARÂMETROS FIXOS ---
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
@@ -141,7 +165,6 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         
         st.markdown("---")
         
-        # AQUI ESTAVA O ERRO, AGORA ESTÁ CORRIGIDO COM O SÍMBOLO <
         if glicemia < 70 and glicemia > 0:
             st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
         else:
@@ -191,7 +214,8 @@ with col_fazer_backup:
 # 2. BOTÃO RECUPERAR BACKUP (UPLOAD)
 with col_recuperar_backup:
     st.write("**Restaurar Antigo**")
-    arquivo_upload = st.file_uploader("Recuperar Backup", type=["csv"], label_visibility="collapsed")
+    # O label aqui fica vazio porque o CSS lá em cima vai colocar o texto novo
+    arquivo_upload = st.file_uploader(" ", type=["csv"], label_visibility="collapsed")
     if arquivo_upload is not None:
         try:
             df_restaurado = pd.read_csv(arquivo_upload)
