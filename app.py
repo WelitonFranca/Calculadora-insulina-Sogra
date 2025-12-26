@@ -72,6 +72,10 @@ def verificar_login(usuario, senha):
     usuario = usuario.lower().strip()
     df = carregar_usuarios()
     if df.empty: return False
+    # Converte para string para garantir comparação correta
+    df['usuario'] = df['usuario'].astype(str)
+    df['senha'] = df['senha'].astype(str)
+    
     usuario_encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
     return not usuario_encontrado.empty
 
@@ -96,26 +100,22 @@ if st.session_state.usuario_logado is None:
     
     tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
     
-    # ABA 1: LOGIN (AGORA COM FORMULÁRIO PARA O NAVEGADOR SALVAR)
+    # ABA 1: LOGIN (MODO DIRETO - MAIS COMPATÍVEL)
     with tab1:
         st.write("Acesse seus dados:")
         
-        # O st.form avisa o navegador que isso é um login
-        with st.form("form_login"):
-            login_user = st.text_input("Usuário", key="login_u").lower().strip()
-            login_pass = st.text_input("Senha", type="password", key="login_p")
-            
-            # Botão de envio do formulário
-            submit_login = st.form_submit_button("ENTRAR", type="primary")
+        # Removemos o st.form para evitar conflito com preenchimento automático
+        login_user = st.text_input("Usuário", key="login_u").lower().strip()
+        login_pass = st.text_input("Senha", type="password", key="login_p")
         
-        if submit_login:
+        if st.button("ENTRAR", type="primary"):
             if verificar_login(login_user, login_pass):
                 st.session_state.usuario_logado = login_user
                 st.rerun()
             else:
-                st.error("Usuário ou senha incorretos.")
+                st.error("Usuário ou senha incorretos. Verifique se digitou igual ao cadastro.")
         
-        st.caption("💡 Dica: Quando o navegador perguntar 'Salvar Senha?', clique em Sim para entrar automático na próxima vez.")
+        st.caption("💡 Se o navegador preencher automático, clique em ENTRAR.")
 
     # ABA 2: CADASTRO
     with tab2:
