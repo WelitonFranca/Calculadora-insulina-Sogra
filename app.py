@@ -100,11 +100,9 @@ if st.session_state.usuario_logado is None:
     
     tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
     
-    # ABA 1: LOGIN (MODO DIRETO - MAIS COMPATÍVEL)
+    # ABA 1: LOGIN
     with tab1:
         st.write("Acesse seus dados:")
-        
-        # Removemos o st.form para evitar conflito com preenchimento automático
         login_user = st.text_input("Usuário", key="login_u").lower().strip()
         login_pass = st.text_input("Senha", type="password", key="login_p")
         
@@ -113,7 +111,7 @@ if st.session_state.usuario_logado is None:
                 st.session_state.usuario_logado = login_user
                 st.rerun()
             else:
-                st.error("Usuário ou senha incorretos. Verifique se digitou igual ao cadastro.")
+                st.error("Usuário ou senha incorretos.")
         
         st.caption("💡 Se o navegador preencher automático, clique em ENTRAR.")
 
@@ -164,9 +162,9 @@ if st.session_state.usuario_logado is None:
     
     st.stop()
 
-# ========================================================
+# 
 # USUÁRIO LOGADO
-# ========================================================
+# 
 
 usuario_atual = st.session_state.usuario_logado
 ARQUIVO_DB = f"db_{usuario_atual}.csv"
@@ -453,7 +451,9 @@ if not df.empty:
         plt.savefig("grafico_temp.png")
 
         st.write("📋 **Dados Detalhados**")
-        cols_to_show = ["Data"] + metricas_selecionadas + ["ICR"]
+        
+        # CORREÇÃO AQUI: FORÇA TODAS AS COLUNAS A APARECEREM NA TABELA
+        cols_to_show = ["Data", "Glicemia", "Carbos", "ICR", "Dose"]
         cols_final = [c for c in cols_to_show if c in df_filtrado.columns]
         
         df_visual = df_filtrado[cols_final].copy()
