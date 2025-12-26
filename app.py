@@ -45,6 +45,10 @@ FATOR_SENSIBILIDADE = 40
 if 'historico' not in st.session_state:
     st.session_state.historico = []
 
+# Variável para guardar o resultado do cálculo mesmo se a página recarregar
+if 'resultado_tela' not in st.session_state:
+    st.session_state.resultado_tela = None
+
 # --- FUNÇÃO: GERAR PDF ---
 def gerar_pdf(df_historico):
     pdf = FPDF()
@@ -165,30 +169,47 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         dose_total = correcao + refeicao
         dose_final = round(dose_total)
         
-        st.markdown("---")
+        # SALVA NO HISTÓRICO
+        data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
+        novo_registro = {
+            "Data": data_str,
+            "Glicemia": glicemia,
+            "Carbos": carbos,
+            "ICR": icr,
+            "Dose": dose_final
+        }
+        st.session_state.historico.append(novo_registro)
         
-        # CORREÇÃO AQUI: Símbolo < usado corretamente
-        if glicemia < 70 and glicemia > 0:
-            st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
-        else:
-            st.success(f"## Dose Recomendada: {dose_final} Unidades")
-            with st.expander("Ver detalhes do cálculo"):
-                st.write(f"🔹 Correção: {correcao:.2f} u")
-                st.write(f"🔹 Comida: {refeicao:.2f} u")
-                st.write(f"🔹 Total exato: {dose_total:.2f} u")
+        # SALVA O RESULTADO NA MEMÓRIA PARA EXIBIR APÓS O REBOOT
+        st.session_state.resultado_tela = {
+            "glicemia": glicemia,
+            "dose_final": dose_final,
+            "correcao": correcao,
+            "refeicao": refeicao,
+            "dose_total": dose_total
+        }
+        
+        # FORÇA A ATUALIZAÇÃO DA PÁGINA (Isso conserta o erro de não aparecer na tabela)
+        st.rerun()
 
-            data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
+# --- EXIBIÇÃO DO RESULTADO (FORA DO BOTÃO) ---
+if st.session_state.resultado_tela is not None:
+    res = st.session_state.resultado_tela
+    
+    st.markdown("---")
+    
+    if res["glicemia"] < 70 and res["glicemia"] > 0:
+        st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
+    else:
+        st.success(f"## Dose Recomendada: {res['dose_final']} Unidades")
+        with st.expander("Ver detalhes do cálculo"):
+            st.write(f"🔹 Correção: {res['correcao']:.2f} u")
+            st.write(f"🔹 Comida: {res['refeicao']:.2f} u")
+            st.write(f"🔹 Total exato: {res['dose_total']:.2f} u")
             
-            novo_registro = {
-                "Data": data_str,
-                "Glicemia": glicemia,
-                "Carbos": carbos,
-                "ICR": icr,
-                "Dose": dose_final
-            }
-            
-            st.session_state.historico.append(novo_registro)
-            st.toast("✅ Adicionado à lista!")
+    if st.button("🔄 Novo Cálculo / Limpar Tela"):
+        st.session_state.resultado_tela = None
+        st.rerun()
 
 # --- ÁREA DE GERENCIAMENTO DE DADOS (BACKUP) ---
 st.write("---")
@@ -239,6 +260,7 @@ if len(st.session_state.historico) > 0:
     
     df = pd.DataFrame(st.session_state.historico)
     
+    # Ordenação automática
     try:
         df['_data_temp'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
         df = df.sort_values(by='_data_temp')
