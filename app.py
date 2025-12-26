@@ -22,15 +22,17 @@ st.markdown("""
             font-weight: 900;
             color: #000000;
             background-color: rgba(255, 255, 255, 0.8);
-            padding: 5px 10px;
+            padding: 10px;
             border-radius: 5px;
             display: block;
+            text-align: center;
         }
         .stFileUploader small {
             display: none;
         }
         .stButton button {
             width: 100%;
+            height: 50px; /* Botões mais altos para facilitar o toque */
         }
     </style>
 """, unsafe_allow_html=True)
@@ -165,149 +167,4 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         
         st.markdown("---")
         
-        if glicemia < 70 and glicemia > 0:
-            st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
-        else:
-            st.success(f"## Dose Recomendada: {dose_final} Unidades")
-            with st.expander("Ver detalhes do cálculo"):
-                st.write(f"🔹 Correção: {correcao:.2f} u")
-                st.write(f"🔹 Comida: {refeicao:.2f} u")
-                st.write(f"🔹 Total exato: {dose_total:.2f} u")
-
-            data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
-            
-            novo_registro = {
-                "Data": data_str,
-                "Glicemia": glicemia,
-                "Carbos": carbos,
-                "ICR": icr,
-                "Dose": dose_final
-            }
-            
-            st.session_state.historico.append(novo_registro)
-            st.toast("✅ Adicionado à lista!")
-
-# --- ÁREA DE GERENCIAMENTO DE DADOS (BACKUP) ---
-st.write("---")
-st.subheader("💾 Gerenciamento de Dados")
-
-col_fazer_backup, col_recuperar_backup = st.columns(2)
-
-with col_fazer_backup:
-    st.write("**Salvar no Celular**")
-    if len(st.session_state.historico) > 0:
-        # Ordena antes de salvar o backup também
-        df_export = pd.DataFrame(st.session_state.historico)
-        try:
-            df_export['_dt'] = pd.to_datetime(df_export['Data'], format="%d/%m/%Y %H:%M")
-            df_export = df_export.sort_values(by='_dt')
-            df_export = df_export.drop(columns=['_dt'])
-        except:
-            pass
-            
-        csv = df_export.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="⬇️ Fazer Backup",
-            data=csv,
-            file_name="backup_insulina.csv",
-            mime="text/csv",
-            type="primary",
-            use_container_width=True
-        )
-    else:
-        st.info("Sem dados para salvar.")
-
-with col_recuperar_backup:
-    st.write("**Restaurar Antigo**")
-    arquivo_upload = st.file_uploader(" ", type=["csv"], label_visibility="collapsed")
-    if arquivo_upload is not None:
-        try:
-            df_restaurado = pd.read_csv(arquivo_upload)
-            st.session_state.historico = df_restaurado.to_dict('records')
-            st.success("✅ Backup Restaurado!")
-        except:
-            st.error("Arquivo inválido.")
-
-# --- ÁREA DE RELATÓRIOS ---
-st.write("---")
-st.subheader("📊 Histórico e Ações")
-
-if len(st.session_state.historico) > 0:
-    
-    # --- AQUI ESTÁ A MÁGICA DA ORDENAÇÃO ---
-    df = pd.DataFrame(st.session_state.historico)
-    
-    try:
-        # Cria coluna temporária de data real
-        df['_data_temp'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
-        # Ordena: Mais antigo -> Mais novo
-        df = df.sort_values(by='_data_temp')
-        # Remove a coluna temporária para não aparecer na tabela
-        df = df.drop(columns=['_data_temp'])
-    except:
-        pass # Se der erro, mantém a ordem original
-    
-    # --- LIXEIRA ---
-    st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
-    
-    df_visual = df.copy()
-    df_visual["Excluir"] = False
-    
-    df_editado = st.data_editor(
-        df_visual,
-        column_config={"Excluir": st.column_config.CheckboxColumn("Excluir?", default=False)},
-        disabled=["Data", "Glicemia", "Carbos", "ICR", "Dose"],
-        hide_index=True,
-    )
-    
-    if st.button("🗑️ Apagar Linhas Marcadas"):
-        linhas_para_manter = df_editado[df_editado["Excluir"] == False]
-        st.session_state.historico = linhas_para_manter.drop(columns=["Excluir"]).to_dict('records')
-        st.success("Linhas apagadas!")
-        st.rerun()
-
-    if len(st.session_state.historico) > 0:
-        # Gráfico (Usa o mesmo DF já ordenado)
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
-        ax.axhline(y=ALVO, color='red', linestyle='--')
-        ax.set_title("Evolução")
-        ax.grid(True)
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-        plt.savefig("grafico_temp.png")
-        
-        # Exportação
-        st.write("### 📤 Enviar Relatório")
-        col_zap, col_pdf = st.columns(2)
-        
-        # Pega o ÚLTIMO registro (que agora é o mais recente de verdade)
-        ultimo = df.iloc[-1]
-        
-        msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
-                   f"📅 Data: {ultimo['Data']}\n"
-                   f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
-                   f"🍞 Carbos: {ultimo['Carbos']}g\n"
-                   f"⚙️ ICR: {ultimo['ICR']}\n"
-                   f"💉 *DOSE: {ultimo['Dose']} unidades*")
-        msg_encoded = urllib.parse.quote(msg_zap)
-        link_zap = f"https://wa.me/?text={msg_encoded}"
-        col_zap.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
-
-        gerar_pdf(df)
-        with open("relatorio_final.pdf", "rb") as pdf_file:
-            col_pdf.download_button("📄 Baixar PDF", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
-
-else:
-    st.info("Histórico vazio. Faça um cálculo ou recupere um backup.")
-
-# --- RODAPÉ PERSONALIZADO ---
-st.write("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: grey; padding: 20px;'>
-        Desenvolvido por <b>Weliton França</b> - Genro da Marina ❤️
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        if glicemia < 70 and
