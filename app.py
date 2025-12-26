@@ -44,22 +44,32 @@ st.markdown("""
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
 
-# --- FUNÇÕES DE USUÁRIOS ---
+# --- FUNÇÕES DE USUÁRIOS (BLINDADAS) ---
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
-        return pd.read_csv(ARQUIVO_USUARIOS)
+        # DTYPE=STR É O SEGREDO: FORÇA TUDO A SER TEXTO
+        df = pd.read_csv(ARQUIVO_USUARIOS, dtype=str)
+        df = df.fillna("") # Remove vazios
+        return df
     else:
         return pd.DataFrame(columns=["usuario", "senha", "palavra_secreta"])
 
 def cadastrar_usuario(usuario, senha, palavra_secreta):
-    usuario = usuario.lower().strip().replace(" ", "")
-    palavra_secreta = palavra_secreta.lower().strip()
+    # Converte tudo para string e limpa espaços
+    usuario = str(usuario).lower().strip().replace(" ", "")
+    senha = str(senha).strip()
+    palavra_secreta = str(palavra_secreta).lower().strip()
     
     if len(usuario) < 3: return False, "❌ O usuário deve ter pelo menos 3 letras."
     if len(senha) < 4: return False, "❌ A senha deve ter pelo menos 4 caracteres."
     if len(palavra_secreta) < 2: return False, "❌ A palavra secreta é muito curta."
     
     df = carregar_usuarios()
+    
+    # Garante que a coluna usuario do DF também esteja limpa para comparar
+    if not df.empty:
+        df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
+        
     if usuario in df['usuario'].values:
         return False, "❌ Este usuário já existe! Tente outro."
     
@@ -69,21 +79,33 @@ def cadastrar_usuario(usuario, senha, palavra_secreta):
     return True, "✅ Cadastro realizado com sucesso!"
 
 def verificar_login(usuario, senha):
-    usuario = usuario.lower().strip()
+    # Limpeza rigorosa da entrada
+    usuario = str(usuario).lower().strip()
+    senha = str(senha).strip()
+    
     df = carregar_usuarios()
     if df.empty: return False
-    # Converte para string para garantir comparação correta
-    df['usuario'] = df['usuario'].astype(str)
-    df['senha'] = df['senha'].astype(str)
+    
+    # Limpeza rigorosa do banco de dados antes de comparar
+    df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
+    df['senha'] = df['senha'].astype(str).str.strip()
     
     usuario_encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
     return not usuario_encontrado.empty
 
 def resetar_senha(usuario, palavra_secreta, nova_senha):
-    usuario = usuario.lower().strip()
-    palavra_secreta = palavra_secreta.lower().strip()
+    usuario = str(usuario).lower().strip()
+    palavra_secreta = str(palavra_secreta).lower().strip()
+    nova_senha = str(nova_senha).strip()
+    
     df = carregar_usuarios()
+    if df.empty: return False, "❌ Nenhum usuário cadastrado."
+    
+    df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
+    df['palavra_secreta'] = df['palavra_secreta'].astype(str).str.lower().str.strip()
+    
     mask = (df['usuario'] == usuario) & (df['palavra_secreta'] == palavra_secreta)
+    
     if not df[mask].empty:
         df.loc[mask, 'senha'] = nova_senha
         df.to_csv(ARQUIVO_USUARIOS, index=False)
@@ -98,6 +120,17 @@ if 'usuario_logado' not in st.session_state:
 if st.session_state.usuario_logado is None:
     st.title("🔐 Acesso ao Diário")
     
+    # --- BOTÃO DE EMERGÊNCIA NA SIDEBAR ---
+    with st.sidebar:
+        st.warning("🔧 Área de Manutenção")
+        if st.button("⚠️ Resetar Cadastro (Apagar Tudo)"):
+            if os.path.exists(ARQUIVO_USUARIOS):
+                os.remove(ARQUIVO_USUARIOS)
+                st.success("Banco de usuários resetado! Cadastre-se novamente.")
+                st.rerun()
+            else:
+                st.info("Já está limpo.")
+
     tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
     
     # ABA 1: LOGIN
@@ -113,7 +146,7 @@ if st.session_state.usuario_logado is None:
             else:
                 st.error("Usuário ou senha incorretos.")
         
-        st.caption("💡 Se o navegador preencher automático, clique em ENTRAR.")
+        st.caption("💡 Dica: Se acabou de atualizar o app, clique em 'Resetar Cadastro' no menu lateral e crie a conta de novo.")
 
     # ABA 2: CADASTRO
     with tab2:
@@ -121,7 +154,7 @@ if st.session_state.usuario_logado is None:
         with st.form("form_cadastro"):
             novo_user = st.text_input("Escolha um Usuário (min 3 letras)")
             novo_pass = st.text_input("Escolha uma Senha (min 4 digitos)", type="password")
-            st.markdown("**Segurança:** Palavra secreta para recuperar senha (Ex: nome do cachorro).")
+            st.markdown("**Segurança:** Palavra secreta para recuperar senha.")
             nova_secret = st.text_input("Palavra Secreta", type="password")
             submit_cadastro = st.form_submit_button("CRIAR CONTA")
         
@@ -452,7 +485,6 @@ if not df.empty:
 
         st.write("📋 **Dados Detalhados**")
         
-        # CORREÇÃO AQUI: FORÇA TODAS AS COLUNAS A APARECEREM NA TABELA
         cols_to_show = ["Data", "Glicemia", "Carbos", "ICR", "Dose"]
         cols_final = [c for c in cols_to_show if c in df_filtrado.columns]
         
