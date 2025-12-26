@@ -141,7 +141,8 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         
         st.markdown("---")
         
-        if glicemia &lt; 70 and glicemia > 0:
+        # AQUI ESTAVA O ERRO, AGORA ESTÁ CORRIGIDO COM O SÍMBOLO <
+        if glicemia < 70 and glicemia > 0:
             st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
         else:
             st.success(f"## Dose Recomendada: {dose_final} Unidades")
