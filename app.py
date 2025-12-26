@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 from fpdf import FPDF
 import pytz
 import urllib.parse
@@ -9,6 +9,9 @@ import os
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
+
+# --- ARQUIVO DE USUÁRIOS ---
+ARQUIVO_USUARIOS = "usuarios_cadastrados.csv"
 
 # --- TRUQUE DE CSS (ESTILO) ---
 st.markdown("""
@@ -41,29 +44,125 @@ st.markdown("""
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
 
-# --- INICIALIZAÇÃO DA MEMÓRIA (SESSÃO) ---
-if 'historico' not in st.session_state:
-    st.session_state.historico = []
+# --- FUNÇÕES DE USUÁRIOS ---
+def carregar_usuarios():
+    if os.path.exists(ARQUIVO_USUARIOS):
+        return pd.read_csv(ARQUIVO_USUARIOS)
+    else:
+        return pd.DataFrame(columns=["usuario", "senha"])
 
-# Variável para guardar o resultado do cálculo mesmo se a página recarregar
+def cadastrar_usuario(usuario, senha):
+    df = carregar_usuarios()
+    if usuario in df['usuario'].values:
+        return False, "Usuário já existe!"
+    
+    novo_usuario = pd.DataFrame([{"usuario": usuario, "senha": senha}])
+    df_final = pd.concat([df, novo_usuario], ignore_index=True)
+    df_final.to_csv(ARQUIVO_USUARIOS, index=False)
+    return True, "Cadastro realizado com sucesso!"
+
+def verificar_login(usuario, senha):
+    df = carregar_usuarios()
+    usuario_encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
+    return not usuario_encontrado.empty
+
+# --- SISTEMA DE LOGIN ---
+if 'usuario_logado' not in st.session_state:
+    st.session_state.usuario_logado = None
+
+if st.session_state.usuario_logado is None:
+    st.title("🔐 Acesso ao Diário")
+    
+    tab1, tab2 = st.tabs(["Entrar", "Criar Nova Conta"])
+    
+    with tab1:
+        st.write("Acesse seus dados:")
+        login_user = st.text_input("Usuário", key="login_u").lower().strip()
+        login_pass = st.text_input("Senha", type="password", key="login_p")
+        
+        if st.button("ENTRAR", type="primary"):
+            if verificar_login(login_user, login_pass):
+                st.session_state.usuario_logado = login_user
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos.")
+
+    with tab2:
+        st.write("Cadastre-se para começar:")
+        novo_user = st.text_input("Escolha um Usuário", key="new_u").lower().strip()
+        novo_pass = st.text_input("Escolha uma Senha", type="password", key="new_p")
+        
+        if st.button("CRIAR CONTA"):
+            if novo_user and novo_pass:
+                sucesso, mensagem = cadastrar_usuario(novo_user, novo_pass)
+                if sucesso:
+                    st.success(mensagem)
+                    st.info("Agora vá na aba 'Entrar' e faça login.")
+                else:
+                    st.error(mensagem)
+            else:
+                st.warning("Preencha todos os campos.")
+    
+    st.stop()
+
+# ========================================================
+# USUÁRIO LOGADO
+# ========================================================
+
+usuario_atual = st.session_state.usuario_logado
+ARQUIVO_DB = f"db_{usuario_atual}.csv"
+
+# --- FUNÇÕES DE BANCO DE DADOS ---
+def carregar_dados():
+    if os.path.exists(ARQUIVO_DB):
+        df = pd.read_csv(ARQUIVO_DB)
+        # Garante que a coluna Data seja datetime para filtros funcionarem
+        try:
+            df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
+        except:
+            pass
+        return df
+    else:
+        return pd.DataFrame(columns=["Data", "Glicemia", "Carbos", "ICR", "Dose"])
+
+def salvar_registro(novo_dado):
+    df = carregar_dados()
+    if 'Data_DT' in df.columns:
+        df = df.drop(columns=['Data_DT']) # Remove coluna auxiliar antes de salvar
+        
+    novo_df = pd.DataFrame([novo_dado])
+    df_final = pd.concat([df, novo_df], ignore_index=True)
+    df_final.to_csv(ARQUIVO_DB, index=False)
+    return df_final
+
+def sobrescrever_banco(df_novo):
+    if 'Data_DT' in df_novo.columns:
+        df_novo = df_novo.drop(columns=['Data_DT'])
+    df_novo.to_csv(ARQUIVO_DB, index=False)
+
 if 'resultado_tela' not in st.session_state:
     st.session_state.resultado_tela = None
 
-# --- FUNÇÃO: GERAR PDF ---
-def gerar_pdf(df_historico):
+# --- FUNÇÃO: GERAR PDF (ADAPTADA PARA FILTROS) ---
+def gerar_pdf(df_historico, filtro_msg="Geral"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, "Relatorio de Controle Glicemico", ln=True, align='C')
+    
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(200, 10, f"Filtro: {filtro_msg}", ln=True, align='C')
+    
     pdf.set_font("Arial", size=10)
     pdf.cell(200, 10, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
     pdf.ln(10)
 
     if os.path.exists("grafico_temp.png"):
-        pdf.image("grafico_temp.png", x=10, y=40, w=190)
+        pdf.image("grafico_temp.png", x=10, y=50, w=190)
         pdf.ln(100)
     
     pdf.set_font("Arial", 'B', 10)
+    # Cabeçalho da tabela
     pdf.cell(40, 10, "Data/Hora", 1)
     pdf.cell(30, 10, "Glicemia", 1)
     pdf.cell(30, 10, "Carbos", 1)
@@ -83,10 +182,13 @@ def gerar_pdf(df_historico):
     pdf.output("relatorio_final.pdf")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("💉 Controle de Insulina")
+st.title(f"💉 Olá, {usuario_atual.capitalize()}!")
 
 with st.sidebar:
-    st.info("Este aplicativo funciona de modo privado. Seus dados ficam salvos apenas no seu celular.")
+    st.success(f"👤 Logado: **{usuario_atual.capitalize()}**")
+    if st.button("Sair"):
+        st.session_state.usuario_logado = None
+        st.rerun()
 
 st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDADE}")
 
@@ -169,7 +271,6 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
         dose_total = correcao + refeicao
         dose_final = round(dose_total)
         
-        # SALVA NO HISTÓRICO
         data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
         novo_registro = {
             "Data": data_str,
@@ -178,9 +279,9 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
             "ICR": icr,
             "Dose": dose_final
         }
-        st.session_state.historico.append(novo_registro)
         
-        # SALVA O RESULTADO NA MEMÓRIA PARA EXIBIR APÓS O REBOOT
+        salvar_registro(novo_registro)
+        
         st.session_state.resultado_tela = {
             "glicemia": glicemia,
             "dose_final": dose_final,
@@ -189,10 +290,9 @@ if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
             "dose_total": dose_total
         }
         
-        # FORÇA A ATUALIZAÇÃO DA PÁGINA (Isso conserta o erro de não aparecer na tabela)
         st.rerun()
 
-# --- EXIBIÇÃO DO RESULTADO (FORA DO BOTÃO) ---
+# --- EXIBIÇÃO DO RESULTADO ---
 if st.session_state.resultado_tela is not None:
     res = st.session_state.resultado_tela
     
@@ -211,110 +311,176 @@ if st.session_state.resultado_tela is not None:
         st.session_state.resultado_tela = None
         st.rerun()
 
-# --- ÁREA DE GERENCIAMENTO DE DADOS (BACKUP) ---
+# --- ÁREA DE GERENCIAMENTO DE DADOS ---
 st.write("---")
 st.subheader("💾 Gerenciamento de Dados")
 
-# 1. BOTÃO FAZER BACKUP (DOWNLOAD)
+df = carregar_dados()
+
 st.write("⬇️ **1º Passo: Salvar no Celular**")
-if len(st.session_state.historico) > 0:
-    df_export = pd.DataFrame(st.session_state.historico)
-    try:
-        df_export['_dt'] = pd.to_datetime(df_export['Data'], format="%d/%m/%Y %H:%M")
-        df_export = df_export.sort_values(by='_dt')
-        df_export = df_export.drop(columns=['_dt'])
-    except:
-        pass
-        
-    csv = df_export.to_csv(index=False).encode('utf-8')
+if not df.empty:
+    csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Fazer Backup (Salvar)",
         data=csv,
-        file_name="backup_insulina.csv",
+        file_name=f"backup_insulina_{usuario_atual}.csv",
         mime="text/csv",
         type="primary",
         use_container_width=True
     )
 else:
-    st.info("Faça um registro primeiro para poder salvar.")
+    st.info("Sem dados para salvar.")
 
 st.write("") 
-st.write("") 
-
-# 2. BOTÃO RECUPERAR BACKUP (UPLOAD)
 st.write("📂 **2º Passo: Restaurar Antigo**")
 arquivo_upload = st.file_uploader(" ", type=["csv"], label_visibility="collapsed")
 if arquivo_upload is not None:
     try:
         df_restaurado = pd.read_csv(arquivo_upload)
-        st.session_state.historico = df_restaurado.to_dict('records')
-        st.success("✅ Backup Restaurado com Sucesso!")
+        sobrescrever_banco(df_restaurado)
+        st.success("✅ Backup Restaurado!")
+        st.rerun()
     except:
         st.error("Arquivo inválido.")
 
-# --- ÁREA DE RELATÓRIOS ---
+# --- ÁREA DE RELATÓRIOS AVANÇADOS ---
 st.write("---")
-st.subheader("📊 Histórico e Ações")
+st.subheader("📊 Relatórios Personalizados")
 
-if len(st.session_state.historico) > 0:
+if not df.empty:
     
-    df = pd.DataFrame(st.session_state.historico)
-    
-    # Ordenação automática
+    # 1. ORDENAÇÃO INICIAL
     try:
-        df['_data_temp'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
-        df = df.sort_values(by='_data_temp')
-        df = df.drop(columns=['_data_temp'])
+        if 'Data_DT' not in df.columns:
+            df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
+        df = df.sort_values(by='Data_DT')
     except:
-        pass 
-    
-    st.info("Para apagar, marque a caixa 'Excluir' e clique no botão vermelho.")
-    
-    df_visual = df.copy()
-    df_visual["Excluir"] = False
-    
-    df_editado = st.data_editor(
-        df_visual,
-        column_config={"Excluir": st.column_config.CheckboxColumn("Excluir?", default=False)},
-        disabled=["Data", "Glicemia", "Carbos", "ICR", "Dose"],
-        hide_index=True,
-    )
-    
-    if st.button("🗑️ Apagar Linhas Marcadas"):
-        linhas_para_manter = df_editado[df_editado["Excluir"] == False]
-        st.session_state.historico = linhas_para_manter.drop(columns=["Excluir"]).to_dict('records')
-        st.success("Linhas apagadas!")
-        st.rerun()
+        pass
 
-    if len(st.session_state.historico) > 0:
+    # 2. FILTROS
+    st.write("🔎 **O que você deseja ver?**")
+    
+    col_filtro1, col_filtro2 = st.columns(2)
+    
+    # Filtro de Data
+    with col_filtro1:
+        min_date = df['Data_DT'].min().date()
+        max_date = df['Data_DT'].max().date()
+        
+        periodo = st.date_input(
+            "Período",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            format="DD/MM/YYYY"
+        )
+    
+    # Filtro de Colunas (Métricas)
+    with col_filtro2:
+        opcoes_metricas = ["Glicemia", "Carbos", "Dose"]
+        metricas_selecionadas = st.multiselect(
+            "Indicadores",
+            opcoes_metricas,
+            default=["Glicemia"] # Padrão mostra só Glicemia para não poluir
+        )
+        if not metricas_selecionadas:
+            metricas_selecionadas = opcoes_metricas # Se tirar tudo, mostra tudo
+
+    # 3. APLICAÇÃO DOS FILTROS
+    mask_data = (df['Data_DT'].dt.date >= periodo[0]) & (df['Data_DT'].dt.date <= periodo[1]) if isinstance(periodo, tuple) and len(periodo) == 2 else (df['Data_DT'].dt.date == periodo[0]) if isinstance(periodo, tuple) and len(periodo) == 1 else True
+    
+    if isinstance(periodo, tuple) and len(periodo) == 2:
+        df_filtrado = df.loc[mask_data]
+    elif isinstance(periodo, tuple) and len(periodo) == 1:
+        # Caso selecione só um dia
+        df_filtrado = df[df['Data_DT'].dt.date == periodo[0]]
+    else:
+        df_filtrado = df
+
+    # 4. GRÁFICO DINÂMICO
+    if not df_filtrado.empty:
+        st.write(f"Exibindo **{len(df_filtrado)}** registros de {periodo[0].strftime('%d/%m')} até {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else periodo[0].strftime('%d/%m')}")
+        
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(df['Data'], df['Glicemia'], marker='o', color='blue')
-        ax.axhline(y=ALVO, color='red', linestyle='--')
-        ax.set_title("Evolução")
-        ax.grid(True)
+        
+        # Plota cada métrica escolhida
+        if "Glicemia" in metricas_selecionadas:
+            ax.plot(df_filtrado['Data'], df_filtrado['Glicemia'], marker='o', label='Glicemia', color='blue')
+            ax.axhline(y=ALVO, color='red', linestyle='--', alpha=0.5, label='Alvo')
+            
+        if "Carbos" in metricas_selecionadas:
+            ax.plot(df_filtrado['Data'], df_filtrado['Carbos'], marker='s', label='Carbos (g)', color='orange', linestyle='-.')
+            
+        if "Dose" in metricas_selecionadas:
+            # Dose é muito baixa (0-10) comparada a Glicemia (100+), então multiplicamos por 10 no gráfico para visualizar melhor
+            # ou plotamos direto. Vamos plotar direto para ser fiel aos dados.
+            ax.plot(df_filtrado['Data'], df_filtrado['Dose'], marker='^', label='Dose (u)', color='green')
+
+        ax.set_title("Evolução no Período")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
         plt.xticks(rotation=45)
+        
+        # Ajusta layout para não cortar datas
+        plt.tight_layout()
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
-        
-        st.write("### 📤 Enviar Relatório")
-        
-        ultimo = df.iloc[-1]
-        msg_zap = (f"*RELATÓRIO DE INSULINA*\n"
-                   f"📅 Data: {ultimo['Data']}\n"
-                   f"🩸 Glicemia: {ultimo['Glicemia']} mg/dL\n"
-                   f"🍞 Carbos: {ultimo['Carbos']}g\n"
-                   f"⚙️ ICR: {ultimo['ICR']}\n"
-                   f"💉 *DOSE: {ultimo['Dose']} unidades*")
-        msg_encoded = urllib.parse.quote(msg_zap)
-        link_zap = f"https://wa.me/?text={msg_encoded}"
-        
-        st.link_button("💚 Enviar no WhatsApp", link_zap, use_container_width=True)
-        
-        st.write("") 
 
-        gerar_pdf(df)
+        # 5. TABELA FILTRADA
+        st.write("📋 **Dados Detalhados**")
+        
+        # Prepara tabela apenas com colunas relevantes para exibição
+        cols_to_show = ["Data"] + metricas_selecionadas + ["ICR"] # ICR sempre bom ter contexto
+        # Garante que as colunas existem (caso Dose não esteja selecionada, mas ICR sim, etc)
+        cols_final = [c for c in cols_to_show if c in df_filtrado.columns]
+        
+        df_visual = df_filtrado[cols_final].copy()
+        df_visual["Excluir"] = False
+        
+        df_editado = st.data_editor(
+            df_visual,
+            column_config={"Excluir": st.column_config.CheckboxColumn("Excluir?", default=False)},
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        if st.button("🗑️ Apagar Linhas Selecionadas"):
+            # Lógica complexa para apagar do DB original baseado na seleção do filtrado
+            # Simplificação: Recarrega o DB, remove as linhas que tem a mesma DATA dos marcados
+            linhas_excluir = df_editado[df_editado["Excluir"] == True]
+            if not linhas_excluir.empty:
+                datas_para_apagar = linhas_excluir['Data'].tolist()
+                df_original = carregar_dados()
+                df_limpo = df_original[~df_original['Data'].isin(datas_para_apagar)]
+                sobrescrever_banco(df_limpo)
+                st.success("Registros apagados!")
+                st.rerun()
+
+        # 6. EXPORTAÇÃO
+        st.write("### 📤 Exportar Relatório Personalizado")
+        
+        col_zap, col_pdf = st.columns(2)
+        
+        # Botão PDF
+        gerar_pdf(df_filtrado, filtro_msg=f"Periodo: {periodo[0].strftime('%d/%m')} a {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else ''}")
         with open("relatorio_final.pdf", "rb") as pdf_file:
-            st.download_button("📄 Baixar PDF Completo", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
+            col_pdf.download_button("📄 Baixar PDF (Filtrado)", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
+
+        # Botão WhatsApp (Manda resumo do período)
+        if not df_filtrado.empty:
+            media_glic = df_filtrado['Glicemia'].mean()
+            total_dose = df_filtrado['Dose'].sum()
+            msg_zap = (f"*RESUMO DO PERÍODO*\n"
+                       f"🗓️ {periodo[0].strftime('%d/%m')} até {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else ''}\n"
+                       f"🩸 Glicemia Média: {media_glic:.0f}\n"
+                       f"💉 Total Insulina: {total_dose} u\n"
+                       f"📝 Registros: {len(df_filtrado)}")
+            msg_encoded = urllib.parse.quote(msg_zap)
+            link_zap = f"https://wa.me/?text={msg_encoded}"
+            col_zap.link_button("💚 Resumo no WhatsApp", link_zap, use_container_width=True)
+
+    else:
+        st.info("Nenhum dado encontrado para este período.")
 
 else:
     st.info("Histórico vazio. Faça um cálculo ou recupere um backup.")
