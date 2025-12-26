@@ -49,22 +49,58 @@ def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         return pd.read_csv(ARQUIVO_USUARIOS)
     else:
-        return pd.DataFrame(columns=["usuario", "senha"])
+        # Agora temos a coluna 'palavra_secreta'
+        return pd.DataFrame(columns=["usuario", "senha", "palavra_secreta"])
 
-def cadastrar_usuario(usuario, senha):
+def cadastrar_usuario(usuario, senha, palavra_secreta):
+    # REGRAS DE VALIDAÇÃO
+    usuario = usuario.lower().strip().replace(" ", "")
+    palavra_secreta = palavra_secreta.lower().strip()
+    
+    if len(usuario) < 3:
+        return False, "❌ O usuário deve ter pelo menos 3 letras."
+    if len(senha) < 4:
+        return False, "❌ A senha deve ter pelo menos 4 caracteres."
+    if len(palavra_secreta) < 2:
+        return False, "❌ A palavra secreta é muito curta."
+    
     df = carregar_usuarios()
     if usuario in df['usuario'].values:
-        return False, "Usuário já existe!"
+        return False, "❌ Este usuário já existe! Tente outro."
     
-    novo_usuario = pd.DataFrame([{"usuario": usuario, "senha": senha}])
+    novo_usuario = pd.DataFrame([{
+        "usuario": usuario, 
+        "senha": senha,
+        "palavra_secreta": palavra_secreta
+    }])
+    
     df_final = pd.concat([df, novo_usuario], ignore_index=True)
     df_final.to_csv(ARQUIVO_USUARIOS, index=False)
-    return True, "Cadastro realizado com sucesso!"
+    return True, "✅ Cadastro realizado com sucesso!"
 
 def verificar_login(usuario, senha):
+    usuario = usuario.lower().strip()
     df = carregar_usuarios()
+    if df.empty: return False
     usuario_encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
     return not usuario_encontrado.empty
+
+def resetar_senha(usuario, palavra_secreta, nova_senha):
+    usuario = usuario.lower().strip()
+    palavra_secreta = palavra_secreta.lower().strip()
+    
+    df = carregar_usuarios()
+    
+    # Verifica se usuário e palavra secreta batem
+    mask = (df['usuario'] == usuario) & (df['palavra_secreta'] == palavra_secreta)
+    
+    if not df[mask].empty:
+        # Atualiza a senha
+        df.loc[mask, 'senha'] = nova_senha
+        df.to_csv(ARQUIVO_USUARIOS, index=False)
+        return True, "✅ Senha alterada com sucesso!"
+    else:
+        return False, "❌ Usuário ou Palavra Secreta incorretos."
 
 # --- SISTEMA DE LOGIN ---
 if 'usuario_logado' not in st.session_state:
@@ -73,8 +109,9 @@ if 'usuario_logado' not in st.session_state:
 if st.session_state.usuario_logado is None:
     st.title("🔐 Acesso ao Diário")
     
-    tab1, tab2 = st.tabs(["Entrar", "Criar Nova Conta"])
+    tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
     
+    # ABA 1: LOGIN
     with tab1:
         st.write("Acesse seus dados:")
         login_user = st.text_input("Usuário", key="login_u").lower().strip()
@@ -87,19 +124,45 @@ if st.session_state.usuario_logado is None:
             else:
                 st.error("Usuário ou senha incorretos.")
 
+    # ABA 2: CADASTRO
     with tab2:
-        st.write("Cadastre-se para começar:")
-        novo_user = st.text_input("Escolha um Usuário", key="new_u").lower().strip()
-        novo_pass = st.text_input("Escolha uma Senha", type="password", key="new_p")
+        st.write("📝 **Crie sua conta:**")
+        novo_user = st.text_input("Escolha um Usuário (min 3 letras)", key="new_u")
+        novo_pass = st.text_input("Escolha uma Senha (min 4 digitos)", type="password", key="new_p")
+        
+        st.info("💡 **Segurança:** Crie uma palavra secreta para recuperar sua senha caso esqueça (Ex: nome da mãe, comida favorita).")
+        nova_secret = st.text_input("Palavra Secreta", key="new_s", type="password")
         
         if st.button("CRIAR CONTA"):
-            if novo_user and novo_pass:
-                sucesso, mensagem = cadastrar_usuario(novo_user, novo_pass)
+            if novo_user and novo_pass and nova_secret:
+                sucesso, mensagem = cadastrar_usuario(novo_user, novo_pass, nova_secret)
                 if sucesso:
                     st.success(mensagem)
+                    st.balloons()
                     st.info("Agora vá na aba 'Entrar' e faça login.")
                 else:
                     st.error(mensagem)
+            else:
+                st.warning("Preencha todos os campos, inclusive a Palavra Secreta.")
+
+    # ABA 3: RECUPERAÇÃO (PALAVRA SECRETA)
+    with tab3:
+        st.write("Esqueceu a senha? Use sua palavra secreta para redefinir.")
+        rec_user = st.text_input("Qual seu usuário?", key="rec_u").lower().strip()
+        rec_secret = st.text_input("Qual sua Palavra Secreta?", key="rec_s", type="password")
+        rec_new_pass = st.text_input("Nova Senha", key="rec_np", type="password")
+        
+        if st.button("REDEFINIR SENHA"):
+            if rec_user and rec_secret and rec_new_pass:
+                if len(rec_new_pass) < 4:
+                    st.error("A nova senha deve ter no mínimo 4 caracteres.")
+                else:
+                    sucesso, msg = resetar_senha(rec_user, rec_secret, rec_new_pass)
+                    if sucesso:
+                        st.success(msg)
+                        st.info("Senha atualizada! Volte na aba 'Entrar' e use a nova senha.")
+                    else:
+                        st.error(msg)
             else:
                 st.warning("Preencha todos os campos.")
     
@@ -116,7 +179,6 @@ ARQUIVO_DB = f"db_{usuario_atual}.csv"
 def carregar_dados():
     if os.path.exists(ARQUIVO_DB):
         df = pd.read_csv(ARQUIVO_DB)
-        # Garante que a coluna Data seja datetime para filtros funcionarem
         try:
             df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
         except:
@@ -128,8 +190,7 @@ def carregar_dados():
 def salvar_registro(novo_dado):
     df = carregar_dados()
     if 'Data_DT' in df.columns:
-        df = df.drop(columns=['Data_DT']) # Remove coluna auxiliar antes de salvar
-        
+        df = df.drop(columns=['Data_DT'])
     novo_df = pd.DataFrame([novo_dado])
     df_final = pd.concat([df, novo_df], ignore_index=True)
     df_final.to_csv(ARQUIVO_DB, index=False)
@@ -143,16 +204,14 @@ def sobrescrever_banco(df_novo):
 if 'resultado_tela' not in st.session_state:
     st.session_state.resultado_tela = None
 
-# --- FUNÇÃO: GERAR PDF (ADAPTADA PARA FILTROS) ---
+# --- FUNÇÃO: GERAR PDF ---
 def gerar_pdf(df_historico, filtro_msg="Geral"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, "Relatorio de Controle Glicemico", ln=True, align='C')
-    
     pdf.set_font("Arial", 'I', 10)
-    pdf.cell(200, 10, f"Filtro: {filtro_msg}", ln=True, align='C')
-    
+    pdf.cell(200, 10, f"Paciente: {usuario_atual.capitalize()} | Filtro: {filtro_msg}", ln=True, align='C')
     pdf.set_font("Arial", size=10)
     pdf.cell(200, 10, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
     pdf.ln(10)
@@ -162,7 +221,6 @@ def gerar_pdf(df_historico, filtro_msg="Geral"):
         pdf.ln(100)
     
     pdf.set_font("Arial", 'B', 10)
-    # Cabeçalho da tabela
     pdf.cell(40, 10, "Data/Hora", 1)
     pdf.cell(30, 10, "Glicemia", 1)
     pdf.cell(30, 10, "Carbos", 1)
@@ -348,8 +406,6 @@ st.write("---")
 st.subheader("📊 Relatórios Personalizados")
 
 if not df.empty:
-    
-    # 1. ORDENAÇÃO INICIAL
     try:
         if 'Data_DT' not in df.columns:
             df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
@@ -357,81 +413,51 @@ if not df.empty:
     except:
         pass
 
-    # 2. FILTROS
     st.write("🔎 **O que você deseja ver?**")
     
     col_filtro1, col_filtro2 = st.columns(2)
     
-    # Filtro de Data
     with col_filtro1:
         min_date = df['Data_DT'].min().date()
         max_date = df['Data_DT'].max().date()
-        
-        periodo = st.date_input(
-            "Período",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date,
-            format="DD/MM/YYYY"
-        )
+        periodo = st.date_input("Período", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
     
-    # Filtro de Colunas (Métricas)
     with col_filtro2:
         opcoes_metricas = ["Glicemia", "Carbos", "Dose"]
-        metricas_selecionadas = st.multiselect(
-            "Indicadores",
-            opcoes_metricas,
-            default=["Glicemia"] # Padrão mostra só Glicemia para não poluir
-        )
-        if not metricas_selecionadas:
-            metricas_selecionadas = opcoes_metricas # Se tirar tudo, mostra tudo
+        metricas_selecionadas = st.multiselect("Indicadores", opcoes_metricas, default=["Glicemia"])
+        if not metricas_selecionadas: metricas_selecionadas = opcoes_metricas
 
-    # 3. APLICAÇÃO DOS FILTROS
     mask_data = (df['Data_DT'].dt.date >= periodo[0]) & (df['Data_DT'].dt.date <= periodo[1]) if isinstance(periodo, tuple) and len(periodo) == 2 else (df['Data_DT'].dt.date == periodo[0]) if isinstance(periodo, tuple) and len(periodo) == 1 else True
     
     if isinstance(periodo, tuple) and len(periodo) == 2:
         df_filtrado = df.loc[mask_data]
     elif isinstance(periodo, tuple) and len(periodo) == 1:
-        # Caso selecione só um dia
         df_filtrado = df[df['Data_DT'].dt.date == periodo[0]]
     else:
         df_filtrado = df
 
-    # 4. GRÁFICO DINÂMICO
     if not df_filtrado.empty:
-        st.write(f"Exibindo **{len(df_filtrado)}** registros de {periodo[0].strftime('%d/%m')} até {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else periodo[0].strftime('%d/%m')}")
+        st.write(f"Exibindo **{len(df_filtrado)}** registros.")
         
         fig, ax = plt.subplots(figsize=(8, 4))
-        
-        # Plota cada métrica escolhida
         if "Glicemia" in metricas_selecionadas:
             ax.plot(df_filtrado['Data'], df_filtrado['Glicemia'], marker='o', label='Glicemia', color='blue')
             ax.axhline(y=ALVO, color='red', linestyle='--', alpha=0.5, label='Alvo')
-            
         if "Carbos" in metricas_selecionadas:
             ax.plot(df_filtrado['Data'], df_filtrado['Carbos'], marker='s', label='Carbos (g)', color='orange', linestyle='-.')
-            
         if "Dose" in metricas_selecionadas:
-            # Dose é muito baixa (0-10) comparada a Glicemia (100+), então multiplicamos por 10 no gráfico para visualizar melhor
-            # ou plotamos direto. Vamos plotar direto para ser fiel aos dados.
             ax.plot(df_filtrado['Data'], df_filtrado['Dose'], marker='^', label='Dose (u)', color='green')
 
         ax.set_title("Evolução no Período")
         ax.grid(True, alpha=0.3)
         ax.legend()
         plt.xticks(rotation=45)
-        
-        # Ajusta layout para não cortar datas
         plt.tight_layout()
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
 
-        # 5. TABELA FILTRADA
         st.write("📋 **Dados Detalhados**")
-        
-        # Prepara tabela apenas com colunas relevantes para exibição
-        cols_to_show = ["Data"] + metricas_selecionadas + ["ICR"] # ICR sempre bom ter contexto
-        # Garante que as colunas existem (caso Dose não esteja selecionada, mas ICR sim, etc)
+        cols_to_show = ["Data"] + metricas_selecionadas + ["ICR"]
         cols_final = [c for c in cols_to_show if c in df_filtrado.columns]
         
         df_visual = df_filtrado[cols_final].copy()
@@ -445,8 +471,6 @@ if not df.empty:
         )
         
         if st.button("🗑️ Apagar Linhas Selecionadas"):
-            # Lógica complexa para apagar do DB original baseado na seleção do filtrado
-            # Simplificação: Recarrega o DB, remove as linhas que tem a mesma DATA dos marcados
             linhas_excluir = df_editado[df_editado["Excluir"] == True]
             if not linhas_excluir.empty:
                 datas_para_apagar = linhas_excluir['Data'].tolist()
@@ -456,17 +480,13 @@ if not df.empty:
                 st.success("Registros apagados!")
                 st.rerun()
 
-        # 6. EXPORTAÇÃO
         st.write("### 📤 Exportar Relatório Personalizado")
-        
         col_zap, col_pdf = st.columns(2)
         
-        # Botão PDF
         gerar_pdf(df_filtrado, filtro_msg=f"Periodo: {periodo[0].strftime('%d/%m')} a {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else ''}")
         with open("relatorio_final.pdf", "rb") as pdf_file:
             col_pdf.download_button("📄 Baixar PDF (Filtrado)", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
 
-        # Botão WhatsApp (Manda resumo do período)
         if not df_filtrado.empty:
             media_glic = df_filtrado['Glicemia'].mean()
             total_dose = df_filtrado['Dose'].sum()
