@@ -30,58 +30,60 @@ st.markdown("""
 @st.cache_resource
 def conectar_gsheets():
     try:
-        # 1. Verifica se o segredo existe
+        # 1. Verifica Secrets
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ ERRO: O cabeçalho [gcp_service_account] não foi encontrado nos Secrets.")
+            st.error("❌ ERRO: Secrets não configurados.")
             st.stop()
 
-        # 2. Carrega o dicionário
         creds_dict = dict(st.secrets["gcp_service_account"])
-
-        # 3. Verifica se as chaves vitais estão lá
-        chaves_necessarias = ["private_key", "client_email", "project_id"]
-        for chave in chaves_necessarias:
-            if chave not in creds_dict:
-                st.error(f"❌ ERRO NO SECRETS: Está faltando a linha '{chave}' nas configurações.")
-                st.stop()
-        
-        # 4. Tenta conectar
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # 5. Abre a planilha
-        sheet = client.open("banco_dados_insulina")
-        return sheet
+        # 2. Tenta abrir a planilha
+        try:
+            sheet = client.open("banco_dados_insulina")
+            return sheet
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error("❌ ERRO GRAVE: O Robô não encontrou a planilha 'banco_dados_insulina'.")
+            st.info("Verifique:\n1. Se o nome da planilha no Google é EXATAMENTE 'banco_dados_insulina'.\n2. Se você compartilhou a planilha com o e-mail do robô.")
+            st.stop()
 
     except Exception as e:
-        # Mostra o erro real para facilitar a correção
-        st.error(f"❌ ERRO DE CONEXÃO: {e}")
-        st.info("Dica: Verifique se você colou a 'private_key' inteira no Secrets, incluindo os traços -----BEGIN...")
+        st.error(f"❌ Erro de Conexão: {e}")
         st.stop()
 
 # ==================================================
-# 👤 GERENCIAMENTO DE USUÁRIOS
+# 👤 GERENCIAMENTO DE USUÁRIOS (COM ESPIÃO DE ABAS)
 # ==================================================
 
 def carregar_usuarios():
+    sheet = conectar_gsheets()
     try:
-        sheet = conectar_gsheets()
         worksheet = sheet.worksheet("usuarios")
         dados = worksheet.get_all_records()
         df = pd.DataFrame(dados)
         df = df.astype(str)
         return df
-    except:
-        return pd.DataFrame(columns=["usuario", "senha", "palavra_secreta"])
+    except gspread.exceptions.WorksheetNotFound:
+        # --- AQUI ESTÁ O PULO DO GATO ---
+        # Se não achar a aba, ele lista o que achou
+        abas_reais = [ws.title for ws in sheet.worksheets()]
+        st.error(f"❌ ERRO DE ABA: O sistema procurou a aba 'usuarios' mas não achou.")
+        st.warning(f"👀 O Robô está vendo estas abas na sua planilha: {abas_reais}")
+        st.info("Dica: Verifique se não tem um espaço em branco no final do nome (ex: 'usuarios ').")
+        st.stop()
+    except Exception as e:
+        st.error(f"Erro desconhecido: {e}")
+        return pd.DataFrame()
 
 def cadastrar_usuario(usuario, senha, palavra_secreta):
     usuario = str(usuario).lower().strip().replace(" ", "")
     senha = str(senha).strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
     
-    if len(usuario) < 3: return False, "❌ Usuário curto (min 3)."
-    if len(senha) < 4: return False, "❌ Senha curta (min 4)."
+    if len(usuario) < 3: return False, "❌ Usuário curto."
+    if len(senha) < 4: return False, "❌ Senha curta."
     
     df = carregar_usuarios()
     if not df.empty and usuario in df['usuario'].values:
@@ -130,7 +132,12 @@ def resetar_senha(usuario, palavra_secreta, nova_senha):
 def carregar_dados_paciente(usuario):
     try:
         sheet = conectar_gsheets()
-        worksheet = sheet.worksheet("registros")
+        try:
+            worksheet = sheet.worksheet("registros")
+        except gspread.exceptions.WorksheetNotFound:
+             st.error("❌ ERRO: A aba 'registros' não foi encontrada.")
+             st.stop()
+             
         dados = worksheet.get_all_records()
         df = pd.DataFrame(dados)
         if not df.empty:
