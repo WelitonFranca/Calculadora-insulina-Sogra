@@ -1,303 +1,182 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import gspread
+import json
 from datetime import datetime
 from fpdf import FPDF
 import os
-import urllib.parse
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import pytz
+import matplotlib.pyplot as plt
 
-# --- CONFIGURAÇÕES DA PÁGINA ---
-st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
+# 1. CONFIGURAÇÃO IMEDIATA (Previne Loop)
+st.set_page_config(page_title="Calculadora Insulina", page_icon="💉", layout="centered")
 
-# --- PARÂMETROS FIXOS ---
-ALVO = 100
-FATOR_SENSIBILIDADE = 40
+# 2. FUNÇÃO DE LIMPEZA DE CHAVE (A "Mágica")
+def limpar_chave_privada(chave):
+    """Corrige a chave se ela vier com espaços ou quebras erradas"""
+    if not chave: return ""
+    # Remove aspas extras se houver
+    chave = chave.strip().strip('"').strip("'")
+    # Garante que as quebras de linha sejam reais
+    return chave.replace("\\n", "\n")
 
-# --- ESTILO CSS ---
-st.markdown("""
-    <style>
-        .stButton button { width: 100%; height: 50px; font-weight: bold; }
-    </style>
-""", unsafe_allow_html=True)
-
-# 
-# ☁️ CONEXÃO COM GOOGLE SHEETS
-# 
-
-@st.cache_resource
-def conectar_gsheets():
+# 3. CONEXÃO ROBUSTA (Sem oauth2client)
+@st.cache_resource(ttl=600) # Recarrega a cada 10min para não cair
+def get_banco_dados():
     try:
+        # Verifica se existe a config
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ ERRO: Secrets não configurados.")
+            st.error("⚙️ Configure os Secrets no painel do Streamlit.")
             st.stop()
 
-        # Carrega as credenciais
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        
-        # --- CORREÇÃO DE SEGURANÇA PARA A CHAVE ---
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        # Carrega e corrige as credenciais
+        creds = dict(st.secrets["gcp_service_account"])
+        creds["private_key"] = limpar_chave_privada(creds.get("private_key", ""))
 
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
+        # Conecta usando apenas gspread (mais moderno e estável)
+        gc = gspread.service_account_from_dict(creds)
         
         # Tenta abrir a planilha
-        sheet = client.open("banco_dados_insulina")
-        return sheet
-
+        try:
+            sh = gc.open("banco_dados_insulina")
+            return sh
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error("❌ Planilha 'banco_dados_insulina' não encontrada no Google Drive.")
+            st.stop()
+            
     except Exception as e:
-        st.error(f"❌ Erro de Conexão: {e}")
-        st.info("Dica: Se o erro for 'Invalid base64', verifique se copiou a chave inteira nos Secrets.")
+        st.error(f"Erro de Conexão: {str(e)}")
         st.stop()
 
-# 
-# 👤 GERENCIAMENTO DE USUÁRIOS
-# 
-
-def carregar_usuarios():
-    sheet = conectar_gsheets()
+# 4. FUNÇÕES DE ACESSO A DADOS (Com tratamento de erro)
+def ler_aba(nome_aba):
+    sh = get_banco_dados()
     try:
-        worksheet = sheet.worksheet("usuarios")
-        dados = worksheet.get_all_records()
-        df = pd.DataFrame(dados)
-        df = df.astype(str)
-        return df
+        ws = sh.worksheet(nome_aba)
+        dados = ws.get_all_records()
+        return pd.DataFrame(dados).astype(str)
     except gspread.exceptions.WorksheetNotFound:
-        st.error("❌ ERRO: Aba 'usuarios' não encontrada.")
-        st.stop()
-    except Exception as e:
+        st.warning(f"⚠️ A aba '{nome_aba}' não existe. Criando agora...")
+        sh.add_worksheet(title=nome_aba, rows=100, cols=10)
+        return pd.DataFrame()
+    except Exception:
         return pd.DataFrame()
 
-def cadastrar_usuario(usuario, senha, palavra_secreta):
-    usuario = str(usuario).lower().strip().replace(" ", "")
-    senha = str(senha).strip()
-    palavra_secreta = str(palavra_secreta).lower().strip()
-    
-    # CORREÇÃO AQUI: Usando o símbolo correto '<'
-    if len(usuario) < 3: return False, "❌ Usuário curto (min 3)."
-    if len(senha) < 4: return False, "❌ Senha curta (min 4)."
-    
-    df = carregar_usuarios()
-    if not df.empty and usuario in df['usuario'].values:
-        return False, "❌ Usuário já existe."
-    
+def adicionar_linha(nome_aba, lista_dados):
+    sh = get_banco_dados()
     try:
-        sheet = conectar_gsheets()
-        worksheet = sheet.worksheet("usuarios")
-        worksheet.append_row([usuario, senha, palavra_secreta])
-        return True, "✅ Conta criada! Faça login."
-    except Exception as e:
-        return False, f"Erro nuvem: {e}"
-
-def verificar_login(usuario, senha):
-    usuario = str(usuario).lower().strip()
-    senha = str(senha).strip()
-    df = carregar_usuarios()
-    if df.empty: return False
-    encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
-    return not encontrado.empty
-
-def resetar_senha(usuario, palavra_secreta, nova_senha):
-    usuario = str(usuario).lower().strip()
-    palavra_secreta = str(palavra_secreta).lower().strip()
-    try:
-        sheet = conectar_gsheets()
-        worksheet = sheet.worksheet("usuarios")
-        dados = worksheet.get_all_records()
-        idx = -1
-        for i, row in enumerate(dados):
-            if str(row['usuario']) == usuario and str(row['palavra_secreta']) == palavra_secreta:
-                idx = i + 2
-                break
-        if idx != -1:
-            worksheet.update_cell(idx, 2, nova_senha)
-            return True, "✅ Senha atualizada!"
-        else:
-            return False, "❌ Dados incorretos."
-    except Exception as e:
-        return False, f"Erro: {e}"
-
-# 
-# 📊 DADOS E FUNÇÕES
-# 
-
-def carregar_dados_paciente(usuario):
-    sheet = conectar_gsheets()
-    try:
-        worksheet = sheet.worksheet("registros")
-        dados = worksheet.get_all_records()
-        df = pd.DataFrame(dados)
-        if not df.empty:
-            df = df[df['usuario'] == usuario].copy()
-            if 'Data' in df.columns:
-                df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
-            cols = ['Glicemia', 'Carbos', 'ICR', 'Dose']
-            for c in cols:
-                if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-            if 'Data_DT' in df.columns: df = df.sort_values(by='Data_DT')
-        return df
-    except gspread.exceptions.WorksheetNotFound:
-        st.error("❌ ERRO: Aba 'registros' não encontrada.")
-        st.stop()
-    except:
-        return pd.DataFrame(columns=["usuario", "Data", "Glicemia", "Carbos", "ICR", "Dose"])
-
-def salvar_dados_paciente(usuario, novo):
-    try:
-        sheet = conectar_gsheets()
-        worksheet = sheet.worksheet("registros")
-        worksheet.append_row([usuario, novo['Data'], novo['Glicemia'], novo['Carbos'], novo['ICR'], novo['Dose']])
+        ws = sh.worksheet(nome_aba)
+        ws.append_row(lista_dados)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar: {e}")
         return False
 
-def gerar_pdf(df, user, filtro):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    t = "Relatório de Controle Glicêmico".encode('latin-1', 'replace').decode('latin-1')
-    pdf.cell(200, 10, t, ln=True, align='C')
-    pdf.set_font("Arial", 'I', 10)
-    i = f"Paciente: {user.capitalize()} | {filtro}".encode('latin-1', 'replace').decode('latin-1')
-    pdf.cell(200, 10, i, ln=True, align='C')
-    pdf.ln(10)
-    if os.path.exists("grafico_temp.png"):
-        pdf.image("grafico_temp.png", x=10, y=40, w=190)
-        pdf.ln(100)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(40, 10, "Data/Hora", 1)
-    pdf.cell(30, 10, "Glicemia", 1)
-    pdf.cell(30, 10, "Carbos", 1)
-    pdf.cell(30, 10, "ICR", 1)
-    pdf.cell(30, 10, "Dose", 1)
-    pdf.ln()
-    pdf.set_font("Arial", size=10)
-    for index, row in df.iterrows():
-        pdf.cell(40, 10, str(row['Data']), 1)
-        pdf.cell(30, 10, str(row['Glicemia']), 1)
-        pdf.cell(30, 10, str(row['Carbos']), 1)
-        pdf.cell(30, 10, str(row['ICR']), 1)
-        pdf.cell(30, 10, str(row['Dose']), 1)
-        pdf.ln()
-    pdf.output("relatorio_final.pdf")
+# 5. LÓGICA DO APP
+def main():
+    # Inicializa Sessão
+    if 'usuario' not in st.session_state: st.session_state.usuario = None
+    if 'resultado' not in st.session_state: st.session_state.resultado = None
 
-# 
-# APP PRINCIPAL
-# 
+    # --- TELA DE LOGIN ---
+    if not st.session_state.usuario:
+        st.title("☁️ Diário de Insulina")
+        st.info("Sistema Online e Seguro")
+        
+        tab1, tab2 = st.tabs(["Entrar", "Criar Conta"])
+        
+        with tab1:
+            u = st.text_input("Usuário").lower().strip()
+            p = st.text_input("Senha", type="password").strip()
+            if st.button("Acessar", type="primary"):
+                df = ler_aba("usuarios")
+                if not df.empty:
+                    # Verifica login
+                    user_ok = df[(df['usuario'] == u) & (df['senha'] == p)]
+                    if not user_ok.empty:
+                        st.session_state.usuario = u
+                        st.rerun()
+                    else:
+                        st.error("Dados incorretos.")
+                else:
+                    st.warning("Nenhum usuário cadastrado.")
 
-if 'usuario_logado' not in st.session_state: st.session_state.usuario_logado = None
-if 'resultado_tela' not in st.session_state: st.session_state.resultado_tela = None
+        with tab2:
+            nu = st.text_input("Novo Usuário (Sem espaços)").lower().strip()
+            np = st.text_input("Nova Senha", type="password").strip()
+            if st.button("Cadastrar"):
+                if len(nu) &lt; 3 or len(np) &lt; 3:
+                    st.warning("Mínimo 3 caracteres.")
+                else:
+                    df = ler_aba("usuarios")
+                    if not df.empty and nu in df['usuario'].values:
+                        st.error("Usuário já existe.")
+                    else:
+                        # Salva: usuario, senha, data
+                        adicionar_linha("usuarios", [nu, np, str(datetime.now())])
+                        st.success("Criado! Faça login.")
+        return # Para a execução aqui se não estiver logado
 
-# TELA DE LOGIN
-if st.session_state.usuario_logado is None:
-    st.title("☁️ Diário na Nuvem")
-    st.success("Conectado ao Google Sheets! Seus dados estão seguros.")
-    
-    t1, t2, t3 = st.tabs(["Entrar", "Criar Conta", "Recuperar"])
-    with t1:
-        u = st.text_input("Usuário", key="l_u").strip()
-        p = st.text_input("Senha", type="password", key="l_p").strip()
-        if st.button("ENTRAR", type="primary"):
-            if verificar_login(u, p):
-                st.session_state.usuario_logado = u.lower()
-                st.rerun()
-            else: st.error("Login incorreto.")
-    with t2:
-        nu = st.text_input("Novo Usuário", key="c_u")
-        np = st.text_input("Nova Senha", type="password", key="c_p")
-        ns = st.text_input("Palavra Secreta", type="password", key="c_s")
-        if st.button("CRIAR"):
-            ok, m = cadastrar_usuario(nu, np, ns)
-            if ok: st.success(m)
-            else: st.error(m)
-    with t3:
-        ru = st.text_input("Usuário", key="r_u")
-        rs = st.text_input("Palavra Secreta", type="password", key="r_s")
-        rnp = st.text_input("Nova Senha", type="password", key="r_np")
-        if st.button("REDEFINIR"):
-            ok, m = resetar_senha(ru, rs, rnp)
-            if ok: st.success(m)
-            else: st.error(m)
-    st.stop()
-
-# ÁREA LOGADA
-user = st.session_state.usuario_logado
-st.title(f"Olá, {user.capitalize()}!")
-with st.sidebar:
-    if st.button("Sair"):
-        st.session_state.usuario_logado = None
+    # --- ÁREA LOGADA ---
+    st.sidebar.title(f"Olá, {st.session_state.usuario.capitalize()}")
+    if st.sidebar.button("Sair"):
+        st.session_state.usuario = None
         st.rerun()
 
-st.write("---")
-c1, c2 = st.columns(2)
-glic = c1.number_input("Glicemia", 0, 600)
-carb = c2.number_input("Carbos", 0, 300)
+    st.title("Calculadora & Diário")
+    
+    # Formulário
+    with st.form("calc_form"):
+        c1, c2 = st.columns(2)
+        glic = c1.number_input("Glicemia", 0, 600)
+        carb = c2.number_input("Carbos (g)", 0, 500)
+        icr = st.selectbox("Fator ICR", range(1, 50), index=9)
+        
+        enviar = st.form_submit_button("Calcular e Salvar")
 
-if 'data_fixa' not in st.session_state: st.session_state.data_fixa = None
-agora = datetime.now(pytz.timezone('America/Sao_Paulo'))
-data_final = st.session_state.data_fixa if st.session_state.data_fixa else agora
-
-if st.session_state.data_fixa:
-    st.success(f"Data Fixada: {data_final.strftime('%d/%m %H:%M')}")
-    if st.button("Usar Agora"): st.session_state.data_fixa = None; st.rerun()
-else:
-    st.info(f"Hora: {agora.strftime('%H:%M')}")
-    if st.button("Mudar Data"): 
-        st.session_state.data_fixa = agora
-        st.warning("Data manual ativada.")
-
-st.write("---")
-icr = st.selectbox("ICR", range(1, 21), index=9)
-if st.button("CALCULAR E SALVAR", type="primary"):
-    if glic == 0 and carb == 0: st.warning("Preencha dados.")
-    else:
-        corr = (glic - ALVO)/FATOR_SENSIBILIDADE if glic > ALVO else 0
-        ref = carb/icr
+    if enviar:
+        alvo = 100
+        fator = 40
+        corr = (glic - alvo) / fator if glic > alvo else 0
+        ref = carb / icr
         dose = round(corr + ref)
-        novo = {"Data": data_final.strftime("%d/%m/%Y %H:%M"), "Glicemia": glic, "Carbos": carb, "ICR": icr, "Dose": dose}
-        if salvar_dados_paciente(user, novo):
-            st.session_state.resultado_tela = {"dose": dose, "detalhes": f"C: {corr:.1f} + R: {ref:.1f}"}
+        
+        # Salva na nuvem
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        dados_salvar = [st.session_state.usuario, agora, glic, carb, icr, dose]
+        
+        if adicionar_linha("registros", dados_salvar):
+            st.session_state.resultado = f"Dose: {dose} unidades (C:{corr:.1f} + R:{ref:.1f})"
             st.rerun()
 
-if st.session_state.resultado_tela:
-    st.success(f"## Dose: {st.session_state.resultado_tela['dose']} u")
-    st.write(st.session_state.resultado_tela['detalhes'])
-    if st.button("Novo"): st.session_state.resultado_tela = None; st.rerun()
+    # Mostra Resultado
+    if st.session_state.resultado:
+        st.success(st.session_state.resultado)
 
-st.write("---")
-st.subheader("📊 Histórico")
-df = carregar_dados_paciente(user)
-if not df.empty:
-    c_f1, c_f2 = st.columns(2)
-    with c_f1:
-        min_d, max_d = df['Data_DT'].min().date(), df['Data_DT'].max().date()
-        p = st.date_input("Período", value=(min_d, max_d), min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
-    with c_f2:
-        met = st.multiselect("Gráfico", ["Glicemia", "Carbos", "Dose"], default=["Glicemia"])
-        if not met: met = ["Glicemia"]
+    # Histórico e Gráfico
+    st.divider()
+    st.subheader("Histórico")
+    df_reg = ler_aba("registros")
     
-    # CORREÇÃO AQUI TAMBÉM: Usando '<=' corretamente
-    mask = (df['Data_DT'].dt.date >= p[0]) & (df['Data_DT'].dt.date <= p[1]) if isinstance(p, tuple) and len(p) == 2 else True
-    df_f = df.loc[mask]
-    
-    if not df_f.empty:
-        fig, ax = plt.subplots(figsize=(8, 4))
-        if "Glicemia" in met: ax.plot(df_f['Data'], df_f['Glicemia'], 'bo-', label='Glicemia')
-        if "Carbos" in met: ax.plot(df_f['Data'], df_f['Carbos'], 'gs--', label='Carbos')
-        if "Dose" in met: ax.plot(df_f['Data'], df_f['Dose'], 'r^-', label='Dose')
-        ax.grid(True, alpha=0.3); ax.legend(); plt.xticks(rotation=45); plt.tight_layout()
-        st.pyplot(fig); plt.savefig("grafico_temp.png")
+    if not df_reg.empty and 'usuario' in df_reg.columns:
+        # Filtra usuário
+        meus_dados = df_reg[df_reg['usuario'] == st.session_state.usuario].copy()
         
-        st.dataframe(df_f[["Data", "Glicemia", "Carbos", "ICR", "Dose"]], use_container_width=True, hide_index=True)
-        c_z, c_p = st.columns(2)
-        gerar_pdf(df_f, user, "Personalizado")
-        with open("relatorio_final.pdf", "rb") as f: c_p.download_button("PDF", f, "relatorio.pdf")
-        msg = urllib.parse.quote(f"Resumo {user}: {len(df_f)} registros.")
-        c_z.link_button("WhatsApp", f"https://wa.me/?text={msg}")
-    else: st.info("Nada no período.")
-else: st.info("Sem dados.")
+        if not meus_dados.empty:
+            # Mostra Tabela
+            st.dataframe(meus_dados, use_container_width=True)
+            
+            # Tenta gerar gráfico se tiver dados numéricos
+            try:
+                meus_dados['Glicemia'] = pd.to_numeric(meus_dados['Glicemia'], errors='coerce')
+                meus_dados = meus_dados.dropna(subset=['Glicemia'])
+                
+                if len(meus_dados) > 1:
+                    st.line_chart(meus_dados['Glicemia'])
+            except:
+                pass # Se der erro no gráfico, apenas não mostra, não trava o app
+        else:
+            st.info("Nenhum registro ainda.")
+
+# Executa o App
+if __name__ == "__main__":
+    main()
