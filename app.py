@@ -23,9 +23,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==================================================
+# 
 # ☁️ CONEXÃO COM GOOGLE SHEETS
-# ==================================================
+# 
 
 @st.cache_resource
 def conectar_gsheets():
@@ -34,7 +34,15 @@ def conectar_gsheets():
             st.error("❌ ERRO: Secrets não configurados.")
             st.stop()
 
+        # Carrega as credenciais
         creds_dict = dict(st.secrets["gcp_service_account"])
+        
+        # --- CORREÇÃO DE SEGURANÇA PARA A CHAVE ---
+        # Garante que a chave privada esteja no formato correto, 
+        # aceitando tanto \n quanto quebras de linha reais
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
@@ -45,11 +53,12 @@ def conectar_gsheets():
 
     except Exception as e:
         st.error(f"❌ Erro de Conexão: {e}")
+        st.info("Dica: Se o erro for 'Invalid base64', verifique se copiou a chave inteira nos Secrets.")
         st.stop()
 
-# ==================================================
+# 
 # 👤 GERENCIAMENTO DE USUÁRIOS
-# ==================================================
+# 
 
 def carregar_usuarios():
     sheet = conectar_gsheets()
@@ -57,10 +66,10 @@ def carregar_usuarios():
         worksheet = sheet.worksheet("usuarios")
         dados = worksheet.get_all_records()
         df = pd.DataFrame(dados)
-        df = df.astype(str) # Garante que tudo seja texto
+        df = df.astype(str)
         return df
     except gspread.exceptions.WorksheetNotFound:
-        st.error("❌ ERRO: Aba 'usuarios' não encontrada na planilha.")
+        st.error("❌ ERRO: Aba 'usuarios' não encontrada.")
         st.stop()
     except Exception as e:
         return pd.DataFrame()
@@ -70,8 +79,8 @@ def cadastrar_usuario(usuario, senha, palavra_secreta):
     senha = str(senha).strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
     
-    if len(usuario) < 3: return False, "❌ Usuário curto (min 3)."
-    if len(senha) < 4: return False, "❌ Senha curta (min 4)."
+    if len(usuario) &lt; 3: return False, "❌ Usuário curto (min 3)."
+    if len(senha) &lt; 4: return False, "❌ Senha curta (min 4)."
     
     df = carregar_usuarios()
     if not df.empty and usuario in df['usuario'].values:
@@ -101,22 +110,21 @@ def resetar_senha(usuario, palavra_secreta, nova_senha):
         worksheet = sheet.worksheet("usuarios")
         dados = worksheet.get_all_records()
         idx = -1
-        # gspread usa índice base 1 + 1 do cabeçalho = começa em 2
         for i, row in enumerate(dados):
             if str(row['usuario']) == usuario and str(row['palavra_secreta']) == palavra_secreta:
                 idx = i + 2
                 break
         if idx != -1:
-            worksheet.update_cell(idx, 2, nova_senha) # Coluna 2 é senha
+            worksheet.update_cell(idx, 2, nova_senha)
             return True, "✅ Senha atualizada!"
         else:
             return False, "❌ Dados incorretos."
     except Exception as e:
         return False, f"Erro: {e}"
 
-# ==================================================
+# 
 # 📊 DADOS E FUNÇÕES
-# ==================================================
+# 
 
 def carregar_dados_paciente(usuario):
     sheet = conectar_gsheets()
@@ -143,7 +151,6 @@ def salvar_dados_paciente(usuario, novo):
     try:
         sheet = conectar_gsheets()
         worksheet = sheet.worksheet("registros")
-        # Ordem exata das colunas
         worksheet.append_row([usuario, novo['Data'], novo['Glicemia'], novo['Carbos'], novo['ICR'], novo['Dose']])
         return True
     except Exception as e:
@@ -180,9 +187,9 @@ def gerar_pdf(df, user, filtro):
         pdf.ln()
     pdf.output("relatorio_final.pdf")
 
-# ==================================================
+# 
 # APP PRINCIPAL
-# ==================================================
+# 
 
 if 'usuario_logado' not in st.session_state: st.session_state.usuario_logado = None
 if 'resultado_tela' not in st.session_state: st.session_state.resultado_tela = None
@@ -275,7 +282,7 @@ if not df.empty:
         met = st.multiselect("Gráfico", ["Glicemia", "Carbos", "Dose"], default=["Glicemia"])
         if not met: met = ["Glicemia"]
     
-    mask = (df['Data_DT'].dt.date >= p[0]) & (df['Data_DT'].dt.date <= p[1]) if isinstance(p, tuple) and len(p) == 2 else True
+    mask = (df['Data_DT'].dt.date >= p[0]) & (df['Data_DT'].dt.date &lt;= p[1]) if isinstance(p, tuple) and len(p) == 2 else True
     df_f = df.loc[mask]
     
     if not df_f.empty:
