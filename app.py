@@ -1,66 +1,36 @@
-
 import streamlit as st
 import pandas as pd
 import gspread
+import json
 from datetime import datetime
 
-# --- 1. CONFIGURAÇÃO INICIAL ---
+# --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. FUNÇÃO DE LIMPEZA MANUAL (SEM REGEX) ---
-def limpar_chave_segura(chave_suja):
-    """Limpa a chave usando apenas substituição de texto simples"""
-    if not chave_suja: return ""
-    
-    # 1. Remove cabeçalhos e rodapés se existirem
-    chave = chave_suja.replace("-----BEGIN PRIVATE KEY-----", "")
-    chave = chave.replace("-----END PRIVATE KEY-----", "")
-    
-    # 2. Remove TUDO que for espaço, quebra de linha ou barra
-    # Isso transforma a chave em uma linguiça única de letras/números
-    chave = chave.replace(" ", "").replace("\n", "").replace("\\n", "").replace("\r", "").replace("\t", "")
-    
-    # 3. Reconstrói no formato padrão (quebra a cada 64 caracteres)
-    chave_final = "-----BEGIN PRIVATE KEY-----\n"
-    for i in range(0, len(chave), 64):
-        chave_final += chave[i:i+64] + "\n"
-    chave_final += "-----END PRIVATE KEY-----\n"
-    
-    return chave_final
-
-# --- 3. CONEXÃO ---
+# --- 2. CONEXÃO DIRETA VIA ARQUIVO ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
-    if "gcp_service_account" not in st.secrets:
-        st.error("❌ Secrets não configurados.")
-        st.stop()
-
     try:
-        # Carrega os segredos
-        creds = dict(st.secrets["gcp_service_account"])
+        # Tenta ler o arquivo JSON direto que você subiu
+        gc = gspread.service_account(filename="service_account.json")
         
-        # Aplica a limpeza segura na chave
-        if "private_key" in creds:
-            creds["private_key"] = limpar_chave_segura(creds["private_key"])
-        
-        # Conecta
-        gc = gspread.service_account_from_dict(creds)
-        
-        # Abre a planilha
         try:
             sh = gc.open("banco_dados_insulina")
         except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ Planilha 'banco_dados_insulina' não encontrada.")
+            st.error("❌ Planilha 'banco_dados_insulina' não encontrada no Google Sheets.")
             st.stop()
             
         return sh
 
+    except FileNotFoundError:
+        st.error("❌ Arquivo 'service_account.json' não encontrado no GitHub.")
+        st.info("Por favor, faça upload do seu arquivo JSON de credenciais com esse nome exato.")
+        st.stop()
     except Exception as e:
-        # Mostra o erro real se acontecer
         st.error(f"Erro na Conexão: {e}")
         st.stop()
 
-# --- 4. PREPARAÇÃO DAS ABAS ---
+# --- 3. PREPARAÇÃO (Igual ao anterior) ---
 def preparar_abas():
     sh = conectar_banco()
     try:
@@ -76,7 +46,7 @@ def preparar_abas():
         ws.append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
     return sh
 
-# --- 5. APP PRINCIPAL ---
+# --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
     
