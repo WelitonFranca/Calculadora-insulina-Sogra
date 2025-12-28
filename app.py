@@ -1,36 +1,61 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import json
+import os
+import glob
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO DIRETA VIA ARQUIVO ---
+# --- 2. CONEXÃO INTELIGENTE (AUTO-DETECTOR) ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
+    st.info("🔍 Iniciando diagnóstico de conexão...")
+    
+    # 1. Procura qualquer arquivo JSON na pasta
+    arquivos_json = glob.glob("*.json")
+    
+    # Filtra para não pegar arquivos de sistema (como package.json se houver)
+    # Pega arquivos que tenham 'service' ou 'tranquil' ou 'client' no nome, ou apenas seja o único json
+    arquivo_chave = None
+    
+    if len(arquivos_json) == 0:
+        st.error("❌ NENHUM arquivo JSON encontrado no GitHub.")
+        st.warning("👉 Passo necessário: Faça upload do arquivo de credenciais (ex: 'service_account.json') no botão 'Add file' do GitHub.")
+        st.stop()
+    elif len(arquivos_json) == 1:
+        arquivo_chave = arquivos_json[0]
+    else:
+        # Tenta achar o mais provável
+        for f in arquivos_json:
+            if "tranquil" in f or "service" in f or "key" in f:
+                arquivo_chave = f
+                break
+        if not arquivo_chave: arquivo_chave = arquivos_json[0]
+
+    st.success(f"✅ Arquivo de chave encontrado: `{arquivo_chave}`")
+
     try:
-        # Tenta ler o arquivo JSON direto que você subiu
-        gc = gspread.service_account(filename="tranquil-symbol-482614-a2-a64fd2f51faf.json")
+        # Tenta conectar usando o arquivo encontrado
+        gc = gspread.service_account(filename=arquivo_chave)
         
         try:
             sh = gc.open("banco_dados_insulina")
+            st.toast("Conexão com Planilha OK!")
         except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ Planilha 'banco_dados_insulina' não encontrada no Google Sheets.")
+            st.error("❌ Conectou no Google, mas não achou a planilha 'banco_dados_insulina'.")
+            st.info("Verifique se o nome da planilha está exato e se você compartilhou ela com o email do robô.")
             st.stop()
             
         return sh
 
-    except FileNotFoundError:
-        st.error("❌ Arquivo 'service_account.json' não encontrado no GitHub.")
-        st.info("Por favor, faça upload do seu arquivo JSON de credenciais com esse nome exato.")
-        st.stop()
     except Exception as e:
-        st.error(f"Erro na Conexão: {e}")
+        st.error(f"❌ Erro Fatal na Chave: {e}")
+        st.warning("Isso significa que o arquivo JSON está corrompido ou é inválido. Gere uma nova chave no Google Cloud e suba novamente.")
         st.stop()
 
-# --- 3. PREPARAÇÃO (Igual ao anterior) ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
     sh = conectar_banco()
     try:
@@ -38,7 +63,6 @@ def preparar_abas():
     except:
         ws = sh.add_worksheet("usuarios", 100, 5)
         ws.append_row(["usuario", "senha", "criado_em"])
-        
     try:
         sh.worksheet("registros")
     except:
@@ -50,6 +74,7 @@ def preparar_abas():
 def main():
     st.title("💉 Controle de Insulina")
     
+    # O diagnóstico roda aqui
     try:
         sh = preparar_abas()
     except:
