@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "tranquil-symbol-482614-a2",
+  "private_key_id": "98b8bccfcf95d3d32c8345ec80f827cd2331b156",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCqUldSS6lQisv2\n9KfDWaGhtCB/FaLg+Q4pwiL9HdNTyHDNUMwU8AZ+gPu6TA4F0j5amp25jdVz1xew\n6KzTvqzOTjZC1e/vhi8aIvZ0FyhPFV0IfxTFgo+1AJd4bDFmUx+1Eju0IYRcJHHg\npL/sksS2Bd3Yj4cSn7qjL66ldQxUjQZ0TJhIkywLj0givs2xkNIkt85Nwzt3Z/wK\n3ixexWXI0sGqT+dzwKvUEkmZrQVnpjT7ip22JGZKaDDHBWwcf5B5ENlHKhNBluyc\niQUefPiiPt8uOrnoosi2RKhysN4xR05wICGq6vdQbT3MvScsTL0oMVEVqGl6AmKh\n+NUAeCYdAgMBAAECggEAJp2oICe44eKyJ1HldmhMOeAfzQhwBx9Yi3WxXp+EQhbs\nIlTLDIU2B7kBOcYUGNRH4F11XLRQXKT8AVdjldeBkP3RFhqwvWb4J24dYAk/EZ0X\nnH1JjZVSNTjG3t3y3k8C3ZgecrL1sjluGz9nJ0FIebd/SqIR/xI5a9W7/FX7H3EC\nI23qW4Fg63hSJX3KPMt5qRnPJnNgdmJ5ZpZs6z8/L5y3tcKRN6PpryB5xKhE/QAe\ngc0m3N8V/Gp41V0iU7yRNtYujg77Y+UaMrs+kSKRDfkJPLNiDb0kgETWjNdr0pWJ\nRQzFmY4vRav7V2weRfAHkK/pWZguVRjecOKxANBwYQKBgQDbgTVuuwXAGaWKwdt5\nSzPib8xrgbm+AvLm/UIk7y1W5vco4D6EZ2D7sS2gmx+RXOs/JvTp3q3zNIrZKhDY\nR9CWYYraVzISM8BHECfmONXA2Ty8/19nfr9uGEQAedYlR1bKmAeZC1tI9cuwdWtc\n/a7x6kQOvLbVBRYzHEbp1qEo4QKBgQDGo8Ac1ca3uYBf13eQMPnBLtyka/fdy2DW\ncTeTZ6YKYRucDfmlV3JNdhxBXDVOxWmKZ74j5ebCNYlQBJrjnIlMU72AKbcRur1B\nBCj3b7TD4rrCWPQXu/NHKJ7YsT0Wgn/lgBk2LoASAixpnULMGQyXzAXIrCij9CIQ\nZweR2UP4vQKBgGz70ya+TtWZJjslky2+6+zia1F5YFp6JlYPqnaiFhXOqSqvY/rj\nRSDSUIAsZNkMlHSPiAxSFnXpQYMfQqvPxD3WAlXz8xVcgnwGBnllAKQ2d9SyypCd\nOriT7bd6xptNt0bxgtw26kToXRCoy/yoq+LK2K2kfvZ3BxWrVX4mpW+hAoGBAKOQ\nwSe9THWK1U+WMAjWm0Hc4aiukxraVnIeJiJF7e6MCd0VkOT6Pc/VGu0jDW5Almh2\nhpYuwDZZOSlfsV8NTe1A40D+mJWLzD0WPNmK7TGDqD9SWiSVCn0k0LAkOeYoLUKA\nmcIIxkKN8Z5B9Xf0hG8WfAjC4nAnHkmdXRlW62aNAoGAYl0ZRoWfehKyqEfWYPfx\nAAYK2YLeeklX5zcG8owq/P2He4SdNL2zbc9Hu8cvX6kVRT+VbyeTJJ/QLjCdVR6z\nqt0NIPpff8BJ56+w/GyVJGQuzIcQ1/aD/IcYYZ37JRKd2AjSypqVxGZAyL1ArwYL\nM05wl9jt8diOBc4pN3lKA4U=\n-----END PRIVATE KEY-----\n",
+  "client_email": "robo-insulina@tranquil-symbol-482614-a2.iam.gserviceaccount.com",
+  "client_id": "114187978442661726480",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40tranquil-symbol-482614-a2.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
