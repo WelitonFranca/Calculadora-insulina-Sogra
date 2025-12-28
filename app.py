@@ -38,8 +38,6 @@ def conectar_gsheets():
         creds_dict = dict(st.secrets["gcp_service_account"])
         
         # --- CORREÇÃO DE SEGURANÇA PARA A CHAVE ---
-        # Garante que a chave privada esteja no formato correto, 
-        # aceitando tanto \n quanto quebras de linha reais
         if "private_key" in creds_dict:
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
@@ -79,8 +77,9 @@ def cadastrar_usuario(usuario, senha, palavra_secreta):
     senha = str(senha).strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
     
-    if len(usuario) &lt; 3: return False, "❌ Usuário curto (min 3)."
-    if len(senha) &lt; 4: return False, "❌ Senha curta (min 4)."
+    # CORREÇÃO AQUI: Usando o símbolo correto '<'
+    if len(usuario) < 3: return False, "❌ Usuário curto (min 3)."
+    if len(senha) < 4: return False, "❌ Senha curta (min 4)."
     
     df = carregar_usuarios()
     if not df.empty and usuario in df['usuario'].values:
@@ -282,7 +281,8 @@ if not df.empty:
         met = st.multiselect("Gráfico", ["Glicemia", "Carbos", "Dose"], default=["Glicemia"])
         if not met: met = ["Glicemia"]
     
-    mask = (df['Data_DT'].dt.date >= p[0]) & (df['Data_DT'].dt.date &lt;= p[1]) if isinstance(p, tuple) and len(p) == 2 else True
+    # CORREÇÃO AQUI TAMBÉM: Usando '<=' corretamente
+    mask = (df['Data_DT'].dt.date >= p[0]) & (df['Data_DT'].dt.date <= p[1]) if isinstance(p, tuple) and len(p) == 2 else True
     df_f = df.loc[mask]
     
     if not df_f.empty:
