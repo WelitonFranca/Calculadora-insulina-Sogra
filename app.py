@@ -1,244 +1,202 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+from datetime import datetime
 from fpdf import FPDF
-import pytz
-import urllib.parse
 import os
+import urllib.parse
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pytz
 
 # --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Calculadora Insulina", page_icon="💉")
-
-# --- ARQUIVO DE USUÁRIOS ---
-ARQUIVO_USUARIOS = "usuarios_cadastrados.csv"
-
-# --- TRUQUE DE CSS (ESTILO) ---
-st.markdown("""
-    <style>
-        .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div > span {
-            display: none;
-        }
-        .stFileUploader div[data-testid="stFileUploaderDropzoneInstructions"] > div::after {
-            content: "📂 Clique aqui para Recuperar Backup";
-            font-size: 18px;
-            font-weight: 900;
-            color: #000000;
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-            display: block;
-            text-align: center;
-        }
-        .stFileUploader small {
-            display: none;
-        }
-        .stButton button {
-            width: 100%;
-            height: 50px;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # --- PARÂMETROS FIXOS ---
 ALVO = 100
 FATOR_SENSIBILIDADE = 40
 
-# --- FUNÇÕES DE USUÁRIOS (BLINDADAS) ---
+# --- ESTILO CSS ---
+st.markdown("""
+    <style>
+        .stButton button {
+            width: 100%;
+            height: 50px;
+            font-weight: bold;
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 24px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==================================================
+# ☁️ CONEXÃO COM GOOGLE SHEETS (BLINDADA)
+# ==================================================
+
+@st.cache_resource
+def conectar_gsheets():
+    """
+    Conecta ao Google Sheets e guarda a conexão na memória (Cache)
+    para o app não ficar lento reconectando toda hora.
+    """
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        # Lê as credenciais dos Segredos do Streamlit
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        # Abre a planilha
+        sheet = client.open("banco_dados_insulina")
+        return sheet
+    except Exception as e:
+        st.error(f"❌ Erro Crítico de Conexão: {e}")
+        st.stop()
+
+# ==================================================
+# 👤 GERENCIAMENTO DE USUÁRIOS
+# ==================================================
+
 def carregar_usuarios():
-    if os.path.exists(ARQUIVO_USUARIOS):
-        # DTYPE=STR É O SEGREDO: FORÇA TUDO A SER TEXTO
-        df = pd.read_csv(ARQUIVO_USUARIOS, dtype=str)
-        df = df.fillna("") # Remove vazios
+    try:
+        sheet = conectar_gsheets()
+        worksheet = sheet.worksheet("usuarios")
+        dados = worksheet.get_all_records()
+        df = pd.DataFrame(dados)
+        # Converte tudo para texto para evitar erros de login
+        df = df.astype(str)
         return df
-    else:
+    except:
         return pd.DataFrame(columns=["usuario", "senha", "palavra_secreta"])
 
 def cadastrar_usuario(usuario, senha, palavra_secreta):
-    # Converte tudo para string e limpa espaços
+    # Limpeza rigorosa
     usuario = str(usuario).lower().strip().replace(" ", "")
     senha = str(senha).strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
     
-    if len(usuario) < 3: return False, "❌ O usuário deve ter pelo menos 3 letras."
-    if len(senha) < 4: return False, "❌ A senha deve ter pelo menos 4 caracteres."
-    if len(palavra_secreta) < 2: return False, "❌ A palavra secreta é muito curta."
+    if len(usuario) < 3: return False, "❌ Usuário muito curto (min 3 letras)."
+    if len(senha) < 4: return False, "❌ Senha muito curta (min 4 dígitos)."
     
     df = carregar_usuarios()
+    if not df.empty and usuario in df['usuario'].values:
+        return False, "❌ Usuário já existe."
     
-    # Garante que a coluna usuario do DF também esteja limpa para comparar
-    if not df.empty:
-        df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
-        
-    if usuario in df['usuario'].values:
-        return False, "❌ Este usuário já existe! Tente outro."
-    
-    novo_usuario = pd.DataFrame([{"usuario": usuario, "senha": senha, "palavra_secreta": palavra_secreta}])
-    df_final = pd.concat([df, novo_usuario], ignore_index=True)
-    df_final.to_csv(ARQUIVO_USUARIOS, index=False)
-    return True, "✅ Cadastro realizado com sucesso!"
+    try:
+        sheet = conectar_gsheets()
+        worksheet = sheet.worksheet("usuarios")
+        worksheet.append_row([usuario, senha, palavra_secreta])
+        return True, "✅ Conta criada com sucesso! Faça login."
+    except Exception as e:
+        return False, f"Erro na nuvem: {e}"
 
 def verificar_login(usuario, senha):
-    # Limpeza rigorosa da entrada
     usuario = str(usuario).lower().strip()
     senha = str(senha).strip()
     
     df = carregar_usuarios()
     if df.empty: return False
     
-    # Limpeza rigorosa do banco de dados antes de comparar
-    df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
-    df['senha'] = df['senha'].astype(str).str.strip()
-    
-    usuario_encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
-    return not usuario_encontrado.empty
+    # Busca exata
+    encontrado = df[(df['usuario'] == usuario) & (df['senha'] == senha)]
+    return not encontrado.empty
 
 def resetar_senha(usuario, palavra_secreta, nova_senha):
     usuario = str(usuario).lower().strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
-    nova_senha = str(nova_senha).strip()
     
-    df = carregar_usuarios()
-    if df.empty: return False, "❌ Nenhum usuário cadastrado."
-    
-    df['usuario'] = df['usuario'].astype(str).str.lower().str.strip()
-    df['palavra_secreta'] = df['palavra_secreta'].astype(str).str.lower().str.strip()
-    
-    mask = (df['usuario'] == usuario) & (df['palavra_secreta'] == palavra_secreta)
-    
-    if not df[mask].empty:
-        df.loc[mask, 'senha'] = nova_senha
-        df.to_csv(ARQUIVO_USUARIOS, index=False)
-        return True, "✅ Senha alterada com sucesso!"
-    else:
-        return False, "❌ Usuário ou Palavra Secreta incorretos."
-
-# --- SISTEMA DE LOGIN ---
-if 'usuario_logado' not in st.session_state:
-    st.session_state.usuario_logado = None
-
-if st.session_state.usuario_logado is None:
-    st.title("🔐 Acesso ao Diário")
-    
-    # --- BOTÃO DE EMERGÊNCIA NA SIDEBAR ---
-    with st.sidebar:
-        st.warning("🔧 Área de Manutenção")
-        if st.button("⚠️ Resetar Cadastro (Apagar Tudo)"):
-            if os.path.exists(ARQUIVO_USUARIOS):
-                os.remove(ARQUIVO_USUARIOS)
-                st.success("Banco de usuários resetado! Cadastre-se novamente.")
-                st.rerun()
-            else:
-                st.info("Já está limpo.")
-
-    tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Nova Conta", "Recuperar Senha"])
-    
-    # ABA 1: LOGIN
-    with tab1:
-        st.write("Acesse seus dados:")
-        login_user = st.text_input("Usuário", key="login_u").lower().strip()
-        login_pass = st.text_input("Senha", type="password", key="login_p")
+    try:
+        sheet = conectar_gsheets()
+        worksheet = sheet.worksheet("usuarios")
+        dados = worksheet.get_all_records()
         
-        if st.button("ENTRAR", type="primary"):
-            if verificar_login(login_user, login_pass):
-                st.session_state.usuario_logado = login_user
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos.")
+        linha_para_editar = -1
+        # gspread usa índice base 1 + 1 do cabeçalho = começa em 2
+        for i, row in enumerate(dados):
+            if str(row['usuario']) == usuario and str(row['palavra_secreta']) == palavra_secreta:
+                linha_para_editar = i + 2 
+                break
         
-        st.caption("💡 Dica: Se acabou de atualizar o app, clique em 'Resetar Cadastro' no menu lateral e crie a conta de novo.")
+        if linha_para_editar != -1:
+            worksheet.update_cell(linha_para_editar, 2, nova_senha) # Coluna 2 é senha
+            return True, "✅ Senha atualizada!"
+        else:
+            return False, "❌ Dados incorretos."
+    except Exception as e:
+        return False, f"Erro: {e}"
 
-    # ABA 2: CADASTRO
-    with tab2:
-        st.write("📝 **Crie sua conta:**")
-        with st.form("form_cadastro"):
-            novo_user = st.text_input("Escolha um Usuário (min 3 letras)")
-            novo_pass = st.text_input("Escolha uma Senha (min 4 digitos)", type="password")
-            st.markdown("**Segurança:** Palavra secreta para recuperar senha.")
-            nova_secret = st.text_input("Palavra Secreta", type="password")
-            submit_cadastro = st.form_submit_button("CRIAR CONTA")
+# ==================================================
+# 📊 GERENCIAMENTO DE DADOS DO PACIENTE
+# ==================================================
+
+def carregar_dados_paciente(usuario):
+    try:
+        sheet = conectar_gsheets()
+        worksheet = sheet.worksheet("registros")
+        dados = worksheet.get_all_records()
+        df = pd.DataFrame(dados)
         
-        if submit_cadastro:
-            if novo_user and novo_pass and nova_secret:
-                sucesso, mensagem = cadastrar_usuario(novo_user, novo_pass, nova_secret)
-                if sucesso:
-                    st.success(mensagem)
-                    st.balloons()
-                    st.info("Agora vá na aba 'Entrar' e faça login.")
-                else:
-                    st.error(mensagem)
-            else:
-                st.warning("Preencha todos os campos.")
-
-    # ABA 3: RECUPERAÇÃO
-    with tab3:
-        st.write("Esqueceu a senha?")
-        with st.form("form_recuperacao"):
-            rec_user = st.text_input("Qual seu usuário?").lower().strip()
-            rec_secret = st.text_input("Qual sua Palavra Secreta?", type="password")
-            rec_new_pass = st.text_input("Nova Senha", type="password")
-            submit_reset = st.form_submit_button("REDEFINIR SENHA")
-        
-        if submit_reset:
-            if rec_user and rec_secret and rec_new_pass:
-                if len(rec_new_pass) < 4:
-                    st.error("A nova senha deve ter no mínimo 4 caracteres.")
-                else:
-                    sucesso, msg = resetar_senha(rec_user, rec_secret, rec_new_pass)
-                    if sucesso:
-                        st.success(msg)
-                        st.info("Senha atualizada! Volte na aba 'Entrar'.")
-                    else:
-                        st.error(msg)
-            else:
-                st.warning("Preencha todos os campos.")
-    
-    st.stop()
-
-# 
-# USUÁRIO LOGADO
-# 
-
-usuario_atual = st.session_state.usuario_logado
-ARQUIVO_DB = f"db_{usuario_atual}.csv"
-
-# --- FUNÇÕES DE BANCO DE DADOS ---
-def carregar_dados():
-    if os.path.exists(ARQUIVO_DB):
-        df = pd.read_csv(ARQUIVO_DB)
-        try:
-            df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
-        except:
-            pass
+        # Filtra apenas o usuário atual
+        if not df.empty:
+            df = df[df['usuario'] == usuario].copy()
+            
+            # CONVERSÃO BLINDADA DE DADOS (CRÍTICO)
+            # Garante que números sejam números e datas sejam datas
+            if 'Data' in df.columns:
+                df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
+            
+            cols_numericas = ['Glicemia', 'Carbos', 'ICR', 'Dose']
+            for col in cols_numericas:
+                if col in df.columns:
+                    # Força conversão para número, se der erro vira 0
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            # Ordena por data
+            if 'Data_DT' in df.columns:
+                df = df.sort_values(by='Data_DT')
+                
         return df
-    else:
-        return pd.DataFrame(columns=["Data", "Glicemia", "Carbos", "ICR", "Dose"])
+    except:
+        return pd.DataFrame(columns=["usuario", "Data", "Glicemia", "Carbos", "ICR", "Dose"])
 
-def salvar_registro(novo_dado):
-    df = carregar_dados()
-    if 'Data_DT' in df.columns:
-        df = df.drop(columns=['Data_DT'])
-    novo_df = pd.DataFrame([novo_dado])
-    df_final = pd.concat([df, novo_df], ignore_index=True)
-    df_final.to_csv(ARQUIVO_DB, index=False)
-    return df_final
+def salvar_dados_paciente(usuario, novo_dado):
+    try:
+        sheet = conectar_gsheets()
+        worksheet = sheet.worksheet("registros")
+        
+        # Ordem exata das colunas na planilha
+        linha = [
+            usuario,
+            novo_dado['Data'],
+            novo_dado['Glicemia'],
+            novo_dado['Carbos'],
+            novo_dado['ICR'],
+            novo_dado['Dose']
+        ]
+        worksheet.append_row(linha)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False
 
-def sobrescrever_banco(df_novo):
-    if 'Data_DT' in df_novo.columns:
-        df_novo = df_novo.drop(columns=['Data_DT'])
-    df_novo.to_csv(ARQUIVO_DB, index=False)
+# ==================================================
+# 📄 GERADOR DE PDF
+# ==================================================
 
-if 'resultado_tela' not in st.session_state:
-    st.session_state.resultado_tela = None
-
-# --- FUNÇÃO: GERAR PDF ---
-def gerar_pdf(df_historico, filtro_msg="Geral"):
+def gerar_pdf(df_historico, usuario_nome, filtro_msg="Geral"):
     pdf = FPDF()
     pdf.add_page()
+    
+    # Título com codificação correta para acentos
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "Relatorio de Controle Glicemico", ln=True, align='C')
+    titulo = "Relatório de Controle Glicêmico".encode('latin-1', 'replace').decode('latin-1')
+    pdf.cell(200, 10, titulo, ln=True, align='C')
+    
     pdf.set_font("Arial", 'I', 10)
-    pdf.cell(200, 10, f"Paciente: {usuario_atual.capitalize()} | Filtro: {filtro_msg}", ln=True, align='C')
+    info = f"Paciente: {usuario_nome.capitalize()} | {filtro_msg}".encode('latin-1', 'replace').decode('latin-1')
+    pdf.cell(200, 10, info, ln=True, align='C')
+    
     pdf.set_font("Arial", size=10)
     pdf.cell(200, 10, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
     pdf.ln(10)
@@ -247,6 +205,7 @@ def gerar_pdf(df_historico, filtro_msg="Geral"):
         pdf.image("grafico_temp.png", x=10, y=50, w=190)
         pdf.ln(100)
     
+    # Cabeçalho da Tabela
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(40, 10, "Data/Hora", 1)
     pdf.cell(30, 10, "Glicemia", 1)
@@ -255,6 +214,7 @@ def gerar_pdf(df_historico, filtro_msg="Geral"):
     pdf.cell(30, 10, "Dose", 1)
     pdf.ln()
     
+    # Dados da Tabela
     pdf.set_font("Arial", size=10)
     for index, row in df_historico.iterrows():
         pdf.cell(40, 10, str(row['Data']), 1)
@@ -266,216 +226,180 @@ def gerar_pdf(df_historico, filtro_msg="Geral"):
         
     pdf.output("relatorio_final.pdf")
 
-# --- INTERFACE PRINCIPAL ---
-st.title(f"💉 Olá, {usuario_atual.capitalize()}!")
+# ==================================================
+# 📱 INTERFACE DO APLICATIVO
+# ==================================================
+
+if 'usuario_logado' not in st.session_state: st.session_state.usuario_logado = None
+if 'resultado_tela' not in st.session_state: st.session_state.resultado_tela = None
+
+# --- TELA DE LOGIN ---
+if st.session_state.usuario_logado is None:
+    st.title("☁️ Diário na Nuvem")
+    st.success("Sistema conectado ao Google Sheets. Seus dados estão seguros.")
+    
+    tab1, tab2, tab3 = st.tabs(["Entrar", "Criar Conta", "Recuperar"])
+    
+    with tab1:
+        st.write("Acesse sua conta:")
+        l_u = st.text_input("Usuário", key="login_u").strip()
+        l_p = st.text_input("Senha", type="password", key="login_p").strip()
+        
+        if st.button("ENTRAR", type="primary"):
+            if verificar_login(l_u, l_p):
+                st.session_state.usuario_logado = l_u.lower()
+                st.rerun()
+            else:
+                st.error("Usuário ou senha incorretos.")
+
+    with tab2:
+        st.write("Novo cadastro:")
+        c_u = st.text_input("Novo Usuário", key="cad_u")
+        c_p = st.text_input("Nova Senha", type="password", key="cad_p")
+        c_s = st.text_input("Palavra Secreta (Recuperação)", type="password", key="cad_s")
+        
+        if st.button("CRIAR CONTA"):
+            ok, msg = cadastrar_usuario(c_u, c_p, c_s)
+            if ok: st.success(msg)
+            else: st.error(msg)
+
+    with tab3:
+        st.write("Recuperar acesso:")
+        r_u = st.text_input("Usuário", key="rec_u")
+        r_s = st.text_input("Palavra Secreta", type="password", key="rec_s")
+        r_np = st.text_input("Nova Senha", type="password", key="rec_np")
+        
+        if st.button("REDEFINIR SENHA"):
+            ok, msg = resetar_senha(r_u, r_s, r_np)
+            if ok: st.success(msg)
+            else: st.error(msg)
+    
+    st.stop()
+
+# --- ÁREA LOGADA ---
+user = st.session_state.usuario_logado
+st.title(f"Olá, {user.capitalize()}!")
 
 with st.sidebar:
-    st.success(f"👤 Logado: **{usuario_atual.capitalize()}**")
+    st.info(f"Conectado como: **{user}**")
     if st.button("Sair"):
         st.session_state.usuario_logado = None
+        st.session_state.resultado_tela = None
         st.rerun()
 
-st.markdown(f"**Configuração:** Alvo {ALVO} | Sensibilidade {FATOR_SENSIBILIDADE}")
-
-# --- ENTRADA DE DADOS ---
+# 1. ENTRADA DE DADOS
 st.write("---")
-st.subheader("1. Dados da Medição")
+st.subheader("1. Novo Registro")
 
-col1, col2 = st.columns(2)
-with col1:
-    glicemia_input = st.number_input("Glicemia (mg/dL)", min_value=0, max_value=600, value=None, placeholder="0")
-with col2:
-    carbos_input = st.number_input("Carboidratos (g)", min_value=0, max_value=300, value=None, placeholder="0")
+c1, c2 = st.columns(2)
+glicemia = c1.number_input("Glicemia (mg/dL)", 0, 600)
+carbos = c2.number_input("Carboidratos (g)", 0, 300)
 
-# --- DATA E HORA ---
+# 2. DATA E HORA
 st.write("---")
-st.subheader("2. Quando foi?")
+st.subheader("2. Data e Hora")
 
-if 'modo_manual' not in st.session_state:
-    st.session_state.modo_manual = False
-if 'data_fixada' not in st.session_state:
-    st.session_state.data_fixada = datetime.now()
+if 'modo_manual' not in st.session_state: st.session_state.modo_manual = False
+if 'data_fixada' not in st.session_state: st.session_state.data_fixada = datetime.now()
 
 fuso_br = pytz.timezone('America/Sao_Paulo')
 agora = datetime.now(fuso_br)
 
 if not st.session_state.modo_manual:
-    st.info(f"🕒 Horário Automático: **{agora.strftime('%d/%m/%Y %H:%M')}**")
-    if st.button("✏️ Alterar Data/Hora"):
+    st.info(f"🕒 Data Automática: **{agora.strftime('%d/%m/%Y %H:%M')}**")
+    if st.button("✏️ Mudar Data/Hora"):
         st.session_state.modo_manual = True
         st.rerun()
-    data_final_para_salvar = agora
+    data_final = agora
 else:
-    st.warning("✏️ Editando Data e Hora...")
-    c1, c2 = st.columns(2)
-    d = c1.date_input("Data", value=agora, format="DD/MM/YYYY")
-    t = c2.time_input("Hora", value=agora)
+    st.warning("✏️ Editando Data...")
+    c_d, c_h = st.columns(2)
+    d = c_d.date_input("Dia", value=agora)
+    t = c_h.time_input("Hora", value=agora)
     
-    col_save, col_cancel = st.columns(2)
-    
-    if col_save.button("💾 SALVAR DATA E HORA", type="primary"):
-        data_combinada = datetime.combine(d, t)
-        st.session_state.data_fixada = data_combinada
+    col_ok, col_cancel = st.columns(2)
+    if col_ok.button("✅ Confirmar Data"):
+        st.session_state.data_fixada = datetime.combine(d, t)
         st.session_state.modo_manual = "FIXADO"
         st.rerun()
-        
     if col_cancel.button("Cancelar"):
         st.session_state.modo_manual = False
         st.rerun()
-    
-    data_final_para_salvar = datetime.combine(d, t)
+    data_final = datetime.combine(d, t)
 
 if st.session_state.modo_manual == "FIXADO":
     st.success(f"🔒 Data Fixada: **{st.session_state.data_fixada.strftime('%d/%m/%Y %H:%M')}**")
-    if st.button("🔄 Liberar / Usar Agora"):
+    if st.button("🔄 Voltar para Agora"):
         st.session_state.modo_manual = False
         st.rerun()
-    data_final_para_salvar = st.session_state.data_fixada
+    data_final = st.session_state.data_fixada
 
-# --- SELEÇÃO DE ICR ---
+# 3. CÁLCULO
 st.write("---")
-st.subheader("3. Configuração")
-lista_opcoes = list(range(1, 21))
-icr = st.selectbox("Fator ICR", options=lista_opcoes, index=9)
+st.subheader("3. Calcular")
+icr = st.selectbox("Fator ICR", range(1, 21), index=9)
 
-# --- CÁLCULO ---
-if st.button("CALCULAR E REGISTRAR", type="primary", use_container_width=True):
-    
-    glicemia = glicemia_input if glicemia_input is not None else 0
-    carbos = carbos_input if carbos_input is not None else 0
-
+if st.button("CALCULAR E SALVAR NA NUVEM", type="primary"):
     if glicemia == 0 and carbos == 0:
-        st.warning("⚠️ Digite a Glicemia ou os Carboidratos.")
+        st.warning("⚠️ Preencha Glicemia ou Carbos.")
     else:
-        if glicemia > ALVO:
-            correcao = (glicemia - ALVO) / FATOR_SENSIBILIDADE
-        else:
-            correcao = 0
-        
+        correcao = (glicemia - ALVO)/FATOR_SENSIBILIDADE if glicemia > ALVO else 0
         refeicao = carbos / icr
         dose_total = correcao + refeicao
         dose_final = round(dose_total)
         
-        data_str = data_final_para_salvar.strftime("%d/%m/%Y %H:%M")
         novo_registro = {
-            "Data": data_str,
-            "Glicemia": glicemia,
-            "Carbos": carbos,
-            "ICR": icr,
-            "Dose": dose_final
+            "Data": data_final.strftime("%d/%m/%Y %H:%M"),
+            "Glicemia": glicemia, "Carbos": carbos, "ICR": icr, "Dose": dose_final
         }
         
-        salvar_registro(novo_registro)
+        with st.spinner("Salvando no Google..."):
+            sucesso = salvar_dados_paciente(user, novo_registro)
         
-        st.session_state.resultado_tela = {
-            "glicemia": glicemia,
-            "dose_final": dose_final,
-            "correcao": correcao,
-            "refeicao": refeicao,
-            "dose_total": dose_total
-        }
-        
-        st.rerun()
+        if sucesso:
+            st.session_state.resultado_tela = {
+                "dose": dose_final,
+                "detalhes": f"Correção: {correcao:.1f} + Comida: {refeicao:.1f}"
+            }
+            st.rerun()
 
-# --- EXIBIÇÃO DO RESULTADO ---
-if st.session_state.resultado_tela is not None:
+# RESULTADO
+if st.session_state.resultado_tela:
     res = st.session_state.resultado_tela
-    
     st.markdown("---")
-    
-    if res["glicemia"] < 70 and res["glicemia"] > 0:
-        st.error("⚠️ HIPOGLICEMIA! Não aplique insulina. Coma 15g de açúcar.")
-    else:
-        st.success(f"## Dose Recomendada: {res['dose_final']} Unidades")
-        with st.expander("Ver detalhes do cálculo"):
-            st.write(f"🔹 Correção: {res['correcao']:.2f} u")
-            st.write(f"🔹 Comida: {res['refeicao']:.2f} u")
-            st.write(f"🔹 Total exato: {res['dose_total']:.2f} u")
-            
-    if st.button("🔄 Novo Cálculo / Limpar Tela"):
+    st.success(f"## Dose: {res['dose']} Unidades")
+    st.info(f"Detalhes: {res['detalhes']}")
+    if st.button("Limpar"):
         st.session_state.resultado_tela = None
         st.rerun()
 
-# --- ÁREA DE GERENCIAMENTO DE DADOS ---
+# 4. RELATÓRIOS
 st.write("---")
-st.subheader("💾 Gerenciamento de Dados")
+st.subheader("📊 Histórico Completo")
 
-df = carregar_dados()
-
-st.write("⬇️ **1º Passo: Salvar no Celular**")
-if not df.empty:
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Fazer Backup (Salvar)",
-        data=csv,
-        file_name=f"backup_insulina_{usuario_atual}.csv",
-        mime="text/csv",
-        type="primary",
-        use_container_width=True
-    )
-else:
-    st.info("Sem dados para salvar.")
-
-st.write("") 
-st.write("📂 **2º Passo: Restaurar Antigo**")
-arquivo_upload = st.file_uploader(" ", type=["csv"], label_visibility="collapsed")
-if arquivo_upload is not None:
-    try:
-        df_restaurado = pd.read_csv(arquivo_upload)
-        sobrescrever_banco(df_restaurado)
-        st.success("✅ Backup Restaurado!")
-        st.rerun()
-    except:
-        st.error("Arquivo inválido.")
-
-# --- ÁREA DE RELATÓRIOS AVANÇADOS ---
-st.write("---")
-st.subheader("📊 Relatórios Personalizados")
+df = carregar_dados_paciente(user)
 
 if not df.empty:
-    try:
-        if 'Data_DT' not in df.columns:
-            df['Data_DT'] = pd.to_datetime(df['Data'], format="%d/%m/%Y %H:%M")
-        df = df.sort_values(by='Data_DT')
-    except:
-        pass
+    # Filtros
+    c_f1, c_f2 = st.columns(2)
+    with c_f1:
+        min_d = df['Data_DT'].min().date()
+        max_d = df['Data_DT'].max().date()
+        periodo = st.date_input("Período", value=(min_d, max_d), min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
+    with c_f2:
+        metricas = st.multiselect("Ver no Gráfico", ["Glicemia", "Carbos", "Dose"], default=["Glicemia"])
+        if not metricas: metricas = ["Glicemia"]
 
-    st.write("🔎 **O que você deseja ver?**")
-    
-    col_filtro1, col_filtro2 = st.columns(2)
-    
-    with col_filtro1:
-        min_date = df['Data_DT'].min().date()
-        max_date = df['Data_DT'].max().date()
-        periodo = st.date_input("Período", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
-    
-    with col_filtro2:
-        opcoes_metricas = ["Glicemia", "Carbos", "Dose"]
-        metricas_selecionadas = st.multiselect("Indicadores", opcoes_metricas, default=["Glicemia"])
-        if not metricas_selecionadas: metricas_selecionadas = opcoes_metricas
+    # Aplica Filtro
+    mask = (df['Data_DT'].dt.date >= periodo[0]) & (df['Data_DT'].dt.date <= periodo[1]) if isinstance(periodo, tuple) and len(periodo) == 2 else True
+    df_filt = df.loc[mask]
 
-    mask_data = (df['Data_DT'].dt.date >= periodo[0]) & (df['Data_DT'].dt.date <= periodo[1]) if isinstance(periodo, tuple) and len(periodo) == 2 else (df['Data_DT'].dt.date == periodo[0]) if isinstance(periodo, tuple) and len(periodo) == 1 else True
-    
-    if isinstance(periodo, tuple) and len(periodo) == 2:
-        df_filtrado = df.loc[mask_data]
-    elif isinstance(periodo, tuple) and len(periodo) == 1:
-        df_filtrado = df[df['Data_DT'].dt.date == periodo[0]]
-    else:
-        df_filtrado = df
-
-    if not df_filtrado.empty:
-        st.write(f"Exibindo **{len(df_filtrado)}** registros.")
-        
+    if not df_filt.empty:
+        # Gráfico
         fig, ax = plt.subplots(figsize=(8, 4))
-        if "Glicemia" in metricas_selecionadas:
-            ax.plot(df_filtrado['Data'], df_filtrado['Glicemia'], marker='o', label='Glicemia', color='blue')
-            ax.axhline(y=ALVO, color='red', linestyle='--', alpha=0.5, label='Alvo')
-        if "Carbos" in metricas_selecionadas:
-            ax.plot(df_filtrado['Data'], df_filtrado['Carbos'], marker='s', label='Carbos (g)', color='orange', linestyle='-.')
-        if "Dose" in metricas_selecionadas:
-            ax.plot(df_filtrado['Data'], df_filtrado['Dose'], marker='^', label='Dose (u)', color='green')
-
-        ax.set_title("Evolução no Período")
+        if "Glicemia" in metricas: ax.plot(df_filt['Data'], df_filt['Glicemia'], 'bo-', label='Glicemia')
+        if "Carbos" in metricas: ax.plot(df_filt['Data'], df_filt['Carbos'], 'gs--', label='Carbos')
+        if "Dose" in metricas: ax.plot(df_filt['Data'], df_filt['Dose'], 'r^-', label='Dose')
         ax.grid(True, alpha=0.3)
         ax.legend()
         plt.xticks(rotation=45)
@@ -483,63 +407,25 @@ if not df.empty:
         st.pyplot(fig)
         plt.savefig("grafico_temp.png")
 
-        st.write("📋 **Dados Detalhados**")
+        # Tabela (Mostra TUDO independente do filtro do gráfico)
+        st.write("📋 **Tabela Detalhada**")
+        cols_show = ["Data", "Glicemia", "Carbos", "ICR", "Dose"]
+        # Garante que as colunas existem antes de mostrar
+        cols_existentes = [c for c in cols_show if c in df_filt.columns]
+        st.dataframe(df_filt[cols_existentes], use_container_width=True, hide_index=True)
         
-        cols_to_show = ["Data", "Glicemia", "Carbos", "ICR", "Dose"]
-        cols_final = [c for c in cols_to_show if c in df_filtrado.columns]
+        # Exportação
+        c_zap, c_pdf = st.columns(2)
+        gerar_pdf(df_filt, user, "Personalizado")
+        with open("relatorio_final.pdf", "rb") as f:
+            c_pdf.download_button("📄 Baixar PDF", f, "relatorio.pdf", "application/pdf", use_container_width=True)
         
-        df_visual = df_filtrado[cols_final].copy()
-        df_visual["Excluir"] = False
-        
-        df_editado = st.data_editor(
-            df_visual,
-            column_config={"Excluir": st.column_config.CheckboxColumn("Excluir?", default=False)},
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        if st.button("🗑️ Apagar Linhas Selecionadas"):
-            linhas_excluir = df_editado[df_editado["Excluir"] == True]
-            if not linhas_excluir.empty:
-                datas_para_apagar = linhas_excluir['Data'].tolist()
-                df_original = carregar_dados()
-                df_limpo = df_original[~df_original['Data'].isin(datas_para_apagar)]
-                sobrescrever_banco(df_limpo)
-                st.success("Registros apagados!")
-                st.rerun()
-
-        st.write("### 📤 Exportar Relatório Personalizado")
-        col_zap, col_pdf = st.columns(2)
-        
-        gerar_pdf(df_filtrado, filtro_msg=f"Periodo: {periodo[0].strftime('%d/%m')} a {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else ''}")
-        with open("relatorio_final.pdf", "rb") as pdf_file:
-            col_pdf.download_button("📄 Baixar PDF (Filtrado)", pdf_file, "relatorio.pdf", "application/pdf", use_container_width=True)
-
-        if not df_filtrado.empty:
-            media_glic = df_filtrado['Glicemia'].mean()
-            total_dose = df_filtrado['Dose'].sum()
-            msg_zap = (f"*RESUMO DO PERÍODO*\n"
-                       f"🗓️ {periodo[0].strftime('%d/%m')} até {periodo[1].strftime('%d/%m') if isinstance(periodo, tuple) and len(periodo) > 1 else ''}\n"
-                       f"🩸 Glicemia Média: {media_glic:.0f}\n"
-                       f"💉 Total Insulina: {total_dose} u\n"
-                       f"📝 Registros: {len(df_filtrado)}")
-            msg_encoded = urllib.parse.quote(msg_zap)
-            link_zap = f"https://wa.me/?text={msg_encoded}"
-            col_zap.link_button("💚 Resumo no WhatsApp", link_zap, use_container_width=True)
-
+        msg = urllib.parse.quote(f"Resumo {user}: {len(df_filt)} registros.")
+        c_zap.link_button("💚 WhatsApp", f"https://wa.me/?text={msg}", use_container_width=True)
     else:
-        st.info("Nenhum dado encontrado para este período.")
-
+        st.info("Nenhum dado neste período.")
 else:
-    st.info("Histórico vazio. Faça um cálculo ou recupere um backup.")
+    st.info("Nenhum registro encontrado na nuvem.")
 
-# --- RODAPÉ PERSONALIZADO ---
 st.write("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: grey; padding: 20px;'>
-        Desenvolvido por <b>Weliton França</b> - Genro da Marina ❤️
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("<div style='text-align: center; color: grey;'>Desenvolvido por <b>Weliton França</b> ❤️</div>", unsafe_allow_html=True)
