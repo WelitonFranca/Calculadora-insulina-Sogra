@@ -24,13 +24,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==================================================
-# ☁️ CONEXÃO COM GOOGLE SHEETS (COM DIAGNÓSTICO)
+# ☁️ CONEXÃO COM GOOGLE SHEETS
 # ==================================================
 
 @st.cache_resource
 def conectar_gsheets():
     try:
-        # 1. Verifica Secrets
         if "gcp_service_account" not in st.secrets:
             st.error("❌ ERRO: Secrets não configurados.")
             st.stop()
@@ -40,21 +39,16 @@ def conectar_gsheets():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # 2. Tenta abrir a planilha
-        try:
-            sheet = client.open("banco_dados_insulina")
-            return sheet
-        except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ ERRO GRAVE: O Robô não encontrou a planilha 'banco_dados_insulina'.")
-            st.info("Verifique:\n1. Se o nome da planilha no Google é EXATAMENTE 'banco_dados_insulina'.\n2. Se você compartilhou a planilha com o e-mail do robô.")
-            st.stop()
+        # Tenta abrir a planilha
+        sheet = client.open("banco_dados_insulina")
+        return sheet
 
     except Exception as e:
         st.error(f"❌ Erro de Conexão: {e}")
         st.stop()
 
 # ==================================================
-# 👤 GERENCIAMENTO DE USUÁRIOS (COM ESPIÃO DE ABAS)
+# 👤 GERENCIAMENTO DE USUÁRIOS
 # ==================================================
 
 def carregar_usuarios():
@@ -63,18 +57,12 @@ def carregar_usuarios():
         worksheet = sheet.worksheet("usuarios")
         dados = worksheet.get_all_records()
         df = pd.DataFrame(dados)
-        df = df.astype(str)
+        df = df.astype(str) # Garante que tudo seja texto
         return df
     except gspread.exceptions.WorksheetNotFound:
-        # --- AQUI ESTÁ O PULO DO GATO ---
-        # Se não achar a aba, ele lista o que achou
-        abas_reais = [ws.title for ws in sheet.worksheets()]
-        st.error(f"❌ ERRO DE ABA: O sistema procurou a aba 'usuarios' mas não achou.")
-        st.warning(f"👀 O Robô está vendo estas abas na sua planilha: {abas_reais}")
-        st.info("Dica: Verifique se não tem um espaço em branco no final do nome (ex: 'usuarios ').")
+        st.error("❌ ERRO: Aba 'usuarios' não encontrada na planilha.")
         st.stop()
     except Exception as e:
-        st.error(f"Erro desconhecido: {e}")
         return pd.DataFrame()
 
 def cadastrar_usuario(usuario, senha, palavra_secreta):
@@ -82,8 +70,8 @@ def cadastrar_usuario(usuario, senha, palavra_secreta):
     senha = str(senha).strip()
     palavra_secreta = str(palavra_secreta).lower().strip()
     
-    if len(usuario) < 3: return False, "❌ Usuário curto."
-    if len(senha) < 4: return False, "❌ Senha curta."
+    if len(usuario) < 3: return False, "❌ Usuário curto (min 3)."
+    if len(senha) < 4: return False, "❌ Senha curta (min 4)."
     
     df = carregar_usuarios()
     if not df.empty and usuario in df['usuario'].values:
@@ -113,12 +101,13 @@ def resetar_senha(usuario, palavra_secreta, nova_senha):
         worksheet = sheet.worksheet("usuarios")
         dados = worksheet.get_all_records()
         idx = -1
+        # gspread usa índice base 1 + 1 do cabeçalho = começa em 2
         for i, row in enumerate(dados):
             if str(row['usuario']) == usuario and str(row['palavra_secreta']) == palavra_secreta:
                 idx = i + 2
                 break
         if idx != -1:
-            worksheet.update_cell(idx, 2, nova_senha)
+            worksheet.update_cell(idx, 2, nova_senha) # Coluna 2 é senha
             return True, "✅ Senha atualizada!"
         else:
             return False, "❌ Dados incorretos."
@@ -130,14 +119,9 @@ def resetar_senha(usuario, palavra_secreta, nova_senha):
 # ==================================================
 
 def carregar_dados_paciente(usuario):
+    sheet = conectar_gsheets()
     try:
-        sheet = conectar_gsheets()
-        try:
-            worksheet = sheet.worksheet("registros")
-        except gspread.exceptions.WorksheetNotFound:
-             st.error("❌ ERRO: A aba 'registros' não foi encontrada.")
-             st.stop()
-             
+        worksheet = sheet.worksheet("registros")
         dados = worksheet.get_all_records()
         df = pd.DataFrame(dados)
         if not df.empty:
@@ -149,6 +133,9 @@ def carregar_dados_paciente(usuario):
                 if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
             if 'Data_DT' in df.columns: df = df.sort_values(by='Data_DT')
         return df
+    except gspread.exceptions.WorksheetNotFound:
+        st.error("❌ ERRO: Aba 'registros' não encontrada.")
+        st.stop()
     except:
         return pd.DataFrame(columns=["usuario", "Data", "Glicemia", "Carbos", "ICR", "Dose"])
 
@@ -156,6 +143,7 @@ def salvar_dados_paciente(usuario, novo):
     try:
         sheet = conectar_gsheets()
         worksheet = sheet.worksheet("registros")
+        # Ordem exata das colunas
         worksheet.append_row([usuario, novo['Data'], novo['Glicemia'], novo['Carbos'], novo['ICR'], novo['Dose']])
         return True
     except Exception as e:
@@ -193,15 +181,16 @@ def gerar_pdf(df, user, filtro):
     pdf.output("relatorio_final.pdf")
 
 # ==================================================
-# APP
+# APP PRINCIPAL
 # ==================================================
 
 if 'usuario_logado' not in st.session_state: st.session_state.usuario_logado = None
 if 'resultado_tela' not in st.session_state: st.session_state.resultado_tela = None
 
+# TELA DE LOGIN
 if st.session_state.usuario_logado is None:
     st.title("☁️ Diário na Nuvem")
-    st.success("Conexão com Google Sheets ativa.")
+    st.success("Conectado ao Google Sheets! Seus dados estão seguros.")
     
     t1, t2, t3 = st.tabs(["Entrar", "Criar Conta", "Recuperar"])
     with t1:
@@ -230,6 +219,7 @@ if st.session_state.usuario_logado is None:
             else: st.error(m)
     st.stop()
 
+# ÁREA LOGADA
 user = st.session_state.usuario_logado
 st.title(f"Olá, {user.capitalize()}!")
 with st.sidebar:
