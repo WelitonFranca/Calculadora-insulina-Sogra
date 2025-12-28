@@ -3,180 +3,155 @@ import pandas as pd
 import gspread
 import json
 from datetime import datetime
-from fpdf import FPDF
-import os
-import matplotlib.pyplot as plt
 
-# 1. CONFIGURAÇÃO IMEDIATA (Previne Loop)
-st.set_page_config(page_title="Calculadora Insulina", page_icon="💉", layout="centered")
+# --- 1. CONFIGURAÇÃO INICIAL ---
+st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# 2. FUNÇÃO DE LIMPEZA DE CHAVE (A "Mágica")
-def limpar_chave_privada(chave):
-    """Corrige a chave se ela vier com espaços ou quebras erradas"""
-    if not chave: return ""
-    # Remove aspas extras se houver
-    chave = chave.strip().strip('"').strip("'")
-    # Garante que as quebras de linha sejam reais
-    return chave.replace("\\n", "\n")
-
-# 3. CONEXÃO ROBUSTA (Sem oauth2client)
-@st.cache_resource(ttl=600) # Recarrega a cada 10min para não cair
-def get_banco_dados():
-    try:
-        # Verifica se existe a config
-        if "gcp_service_account" not in st.secrets:
-            st.error("⚙️ Configure os Secrets no painel do Streamlit.")
-            st.stop()
-
-        # Carrega e corrige as credenciais
-        creds = dict(st.secrets["gcp_service_account"])
-        creds["private_key"] = limpar_chave_privada(creds.get("private_key", ""))
-
-        # Conecta usando apenas gspread (mais moderno e estável)
-        gc = gspread.service_account_from_dict(creds)
-        
-        # Tenta abrir a planilha
-        try:
-            sh = gc.open("banco_dados_insulina")
-            return sh
-        except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ Planilha 'banco_dados_insulina' não encontrada no Google Drive.")
-            st.stop()
-            
-    except Exception as e:
-        st.error(f"Erro de Conexão: {str(e)}")
+# --- 2. FUNÇÃO DE CONEXÃO SEGURA ---
+@st.cache_resource(ttl=600)
+def conectar_banco():
+    # Verifica Secrets
+    if "gcp_service_account" not in st.secrets:
+        st.error("❌ Secrets não configurados.")
         st.stop()
 
-# 4. FUNÇÕES DE ACESSO A DADOS (Com tratamento de erro)
-def ler_aba(nome_aba):
-    sh = get_banco_dados()
     try:
-        ws = sh.worksheet(nome_aba)
-        dados = ws.get_all_records()
-        return pd.DataFrame(dados).astype(str)
-    except gspread.exceptions.WorksheetNotFound:
-        st.warning(f"⚠️ A aba '{nome_aba}' não existe. Criando agora...")
-        sh.add_worksheet(title=nome_aba, rows=100, cols=10)
-        return pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
-
-def adicionar_linha(nome_aba, lista_dados):
-    sh = get_banco_dados()
-    try:
-        ws = sh.worksheet(nome_aba)
-        ws.append_row(lista_dados)
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
-        return False
-
-# 5. LÓGICA DO APP
-def main():
-    # Inicializa Sessão
-    if 'usuario' not in st.session_state: st.session_state.usuario = None
-    if 'resultado' not in st.session_state: st.session_state.resultado = None
-
-    # --- TELA DE LOGIN ---
-    if not st.session_state.usuario:
-        st.title("☁️ Diário de Insulina")
-        st.info("Sistema Online e Seguro")
+        # Carrega e corrige a chave
+        creds = dict(st.secrets["gcp_service_account"])
+        if "private_key" in creds:
+            creds["private_key"] = creds["private_key"].replace("\\n", "\n")
         
-        tab1, tab2 = st.tabs(["Entrar", "Criar Conta"])
+        # Conecta
+        gc = gspread.service_account_from_dict(creds)
+        
+        # Tenta abrir ou criar planilha
+        try:
+            sh = gc.open("banco_dados_insulina")
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error("❌ Planilha 'banco_dados_insulina' não encontrada.")
+            st.stop()
+            
+        return sh
+
+    except Exception as e:
+        st.error(f"Erro de Conexão: {e}")
+        st.stop()
+
+# --- 3. PREPARAÇÃO DAS ABAS ---
+def preparar_abas():
+    sh = conectar_banco()
+    
+    # Garante aba usuarios
+    try:
+        sh.worksheet("usuarios")
+    except:
+        ws = sh.add_worksheet("usuarios", 100, 5)
+        ws.append_row(["usuario", "senha", "criado_em"])
+        
+    # Garante aba registros
+    try:
+        sh.worksheet("registros")
+    except:
+        ws = sh.add_worksheet("registros", 1000, 10)
+        ws.append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
+
+    return sh
+
+# --- 4. APP PRINCIPAL ---
+def main():
+    st.title("💉 Controle de Insulina")
+    
+    # Inicializa conexão
+    try:
+        sh = preparar_abas()
+    except:
+        st.stop()
+
+    # Sessão
+    if 'logado' not in st.session_state: st.session_state.logado = False
+    if 'usuario_atual' not in st.session_state: st.session_state.usuario_atual = ""
+
+    # TELA DE LOGIN / CADASTRO
+    if not st.session_state.logado:
+        tab1, tab2 = st.tabs(["Login", "Cadastro"])
         
         with tab1:
-            u = st.text_input("Usuário").lower().strip()
-            p = st.text_input("Senha", type="password").strip()
-            if st.button("Acessar", type="primary"):
-                df = ler_aba("usuarios")
-                if not df.empty:
-                    # Verifica login
-                    user_ok = df[(df['usuario'] == u) & (df['senha'] == p)]
-                    if not user_ok.empty:
-                        st.session_state.usuario = u
-                        st.rerun()
+            with st.form("login_form"):
+                u = st.text_input("Usuário").lower().strip()
+                p = st.text_input("Senha", type="password").strip()
+                if st.form_submit_button("Entrar"):
+                    ws = sh.worksheet("usuarios")
+                    df = pd.DataFrame(ws.get_all_records()).astype(str)
+                    
+                    if not df.empty:
+                        # Verifica login
+                        achou = df[(df['usuario'] == u) & (df['senha'] == p)]
+                        if not achou.empty:
+                            st.session_state.logado = True
+                            st.session_state.usuario_atual = u
+                            st.rerun()
+                        else:
+                            st.error("Dados incorretos.")
                     else:
-                        st.error("Dados incorretos.")
-                else:
-                    st.warning("Nenhum usuário cadastrado.")
+                        st.warning("Nenhum usuário cadastrado.")
 
         with tab2:
-            nu = st.text_input("Novo Usuário (Sem espaços)").lower().strip()
-            np = st.text_input("Nova Senha", type="password").strip()
-            if st.button("Cadastrar"):
-                if len(nu) &lt; 3 or len(np) &lt; 3:
-                    st.warning("Mínimo 3 caracteres.")
-                else:
-                    df = ler_aba("usuarios")
-                    if not df.empty and nu in df['usuario'].values:
-                        st.error("Usuário já existe.")
-                    else:
-                        # Salva: usuario, senha, data
-                        adicionar_linha("usuarios", [nu, np, str(datetime.now())])
-                        st.success("Criado! Faça login.")
-        return # Para a execução aqui se não estiver logado
-
-    # --- ÁREA LOGADA ---
-    st.sidebar.title(f"Olá, {st.session_state.usuario.capitalize()}")
-    if st.sidebar.button("Sair"):
-        st.session_state.usuario = None
-        st.rerun()
-
-    st.title("Calculadora & Diário")
-    
-    # Formulário
-    with st.form("calc_form"):
-        c1, c2 = st.columns(2)
-        glic = c1.number_input("Glicemia", 0, 600)
-        carb = c2.number_input("Carbos (g)", 0, 500)
-        icr = st.selectbox("Fator ICR", range(1, 50), index=9)
-        
-        enviar = st.form_submit_button("Calcular e Salvar")
-
-    if enviar:
-        alvo = 100
-        fator = 40
-        corr = (glic - alvo) / fator if glic > alvo else 0
-        ref = carb / icr
-        dose = round(corr + ref)
-        
-        # Salva na nuvem
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        dados_salvar = [st.session_state.usuario, agora, glic, carb, icr, dose]
-        
-        if adicionar_linha("registros", dados_salvar):
-            st.session_state.resultado = f"Dose: {dose} unidades (C:{corr:.1f} + R:{ref:.1f})"
-            st.rerun()
-
-    # Mostra Resultado
-    if st.session_state.resultado:
-        st.success(st.session_state.resultado)
-
-    # Histórico e Gráfico
-    st.divider()
-    st.subheader("Histórico")
-    df_reg = ler_aba("registros")
-    
-    if not df_reg.empty and 'usuario' in df_reg.columns:
-        # Filtra usuário
-        meus_dados = df_reg[df_reg['usuario'] == st.session_state.usuario].copy()
-        
-        if not meus_dados.empty:
-            # Mostra Tabela
-            st.dataframe(meus_dados, use_container_width=True)
-            
-            # Tenta gerar gráfico se tiver dados numéricos
-            try:
-                meus_dados['Glicemia'] = pd.to_numeric(meus_dados['Glicemia'], errors='coerce')
-                meus_dados = meus_dados.dropna(subset=['Glicemia'])
+            with st.form("cad_form"):
+                nu = st.text_input("Novo Usuário").lower().strip()
+                np = st.text_input("Nova Senha", type="password").strip()
                 
-                if len(meus_dados) > 1:
-                    st.line_chart(meus_dados['Glicemia'])
-            except:
-                pass # Se der erro no gráfico, apenas não mostra, não trava o app
-        else:
-            st.info("Nenhum registro ainda.")
+                if st.form_submit_button("Criar Conta"):
+                    # --- AQUI ESTAVA O ERRO, AGORA CORRIGIDO ---
+                    if len(nu) < 3 or len(np) < 3:
+                        st.warning("Usuário e senha devem ter no mínimo 3 caracteres.")
+                    else:
+                        ws = sh.worksheet("usuarios")
+                        existing = ws.col_values(1)
+                        if nu in existing:
+                            st.error("Usuário já existe.")
+                        else:
+                            ws.append_row([nu, np, str(datetime.now())])
+                            st.success("Criado! Faça login.")
 
-# Executa o App
+    # ÁREA LOGADA
+    else:
+        st.success(f"Logado como: **{st.session_state.usuario_atual}**")
+        if st.button("Sair"):
+            st.session_state.logado = False
+            st.rerun()
+            
+        st.divider()
+        
+        # Formulário de Cálculo
+        with st.form("calculo"):
+            c1, c2 = st.columns(2)
+            glic = c1.number_input("Glicemia", 0, 900)
+            carbos = c2.number_input("Carbos (g)", 0, 500)
+            icr = st.selectbox("ICR", range(1, 100), index=9)
+            
+            if st.form_submit_button("Calcular e Salvar"):
+                alvo = 100
+                fator = 40
+                
+                corr = (glic - alvo) / fator if glic > alvo else 0
+                ref = carbos / icr
+                dose = round(corr + ref)
+                
+                # Salva
+                ws_reg = sh.worksheet("registros")
+                data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ws_reg.append_row([st.session_state.usuario_atual, data_hora, glic, carbos, icr, dose])
+                
+                st.info(f"✅ Dose: **{dose} UI**")
+
+        # Histórico
+        st.subheader("Últimos Registros")
+        ws_reg = sh.worksheet("registros")
+        df = pd.DataFrame(ws_reg.get_all_records())
+        
+        if not df.empty:
+            df = df[df['usuario'] == st.session_state.usuario_atual]
+            st.dataframe(df.tail(5))
+
 if __name__ == "__main__":
     main()
