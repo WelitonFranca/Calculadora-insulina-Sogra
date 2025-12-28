@@ -101,8 +101,8 @@ def main():
                 np = st.text_input("Nova Senha", type="password").strip()
                 
                 if st.form_submit_button("Criar Conta"):
-                    # --- AQUI ESTAVA O ERRO, AGORA CORRIGIDO ---
-                    if len(nu) < 3 or len(np) < 3:
+                    # --- CORREÇÃO FEITA AQUI ---
+                    if len(nu) &lt; 3 or len(np) &lt; 3:
                         st.warning("Usuário e senha devem ter no mínimo 3 caracteres.")
                     else:
                         ws = sh.worksheet("usuarios")
