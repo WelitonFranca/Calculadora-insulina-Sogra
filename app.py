@@ -12,7 +12,7 @@ st.set_page_config(page_title="Diário Insulina", layout="centered")
 def conectar_banco():
     try:
         # Tenta ler o arquivo JSON direto que você subiu
-        gc = gspread.service_account(filename="service_account.json")
+        gc = gspread.service_account(filename="tranquil-symbol-482614-a2-a64fd2f51faf.json")
         
         try:
             sh = gc.open("banco_dados_insulina")
