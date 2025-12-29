@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v8")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v9")
     
     if arquivo:
         try:
@@ -147,7 +147,7 @@ def main():
                 st.session_state.ultimo_resultado = None
                 st.rerun()
 
-        # --- HISTÓRICO E GRÁFICOS AVANÇADOS ---
+        # --- HISTÓRICO E GRÁFICOS ---
         st.divider()
         st.subheader("📊 Análise e Histórico")
         
@@ -161,8 +161,36 @@ def main():
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # 1. TRATAMENTO DE DADOS
+                        # TRATAMENTO DE DADOS
                         df['data_original'] = df['data'].astype(str)
                         df['data_grafico'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
-                        df['glicemia'] =
+                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
+                        df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
+                        df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
+                        
+                        df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
+                        
+                        # Define a data como índice para o eixo X ficar correto
+                        df_grafico.set_index('data_grafico', inplace=True)
+                        
+                        # CONTROLES
+                        col_tipo, col_dados = st.columns([1, 2])
+                        with col_tipo:
+                            tipo_grafico = st.selectbox("Tipo de Gráfico:", ["Linha", "Barra", "Área", "Dispersão (Pontos)"])
+                        with col_dados:
+                            opcoes = st.multiselect("Dados:", ["Glicemia", "Carboidratos", "Dose Insulina"], default=["Glicemia"])
+                        
+                        mapa = {"Glicemia": "glicemia", "Carboidratos": "carbos", "Dose Insulina": "dose"}
+                        
+                        # GRÁFICO
+                        if opcoes and not df_grafico.empty:
+                            cols = [mapa[o] for o in opcoes]
+                            if tipo_grafico == "Linha": st.line_chart(df_grafico[cols])
+                            elif tipo_grafico == "Barra": st.bar_chart(df_grafico[cols])
+                            elif tipo_grafico == "Área": st.area_chart(df_grafico[cols])
+                            elif tipo_grafico == "Dispersão (Pontos)": st.scatter_chart(df_grafico[cols])
+                        elif df_grafico.empty:
+                            st.info("Aguardando dados válidos...")
+                        else:
+                            st.info("Selecione um
