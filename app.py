@@ -1,35 +1,28 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import os
 import glob
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO INTELIGENTE (AUTO-DETECTOR) ---
+# --- 2. CONEXÃO INTELIGENTE ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
     st.info("🔍 Iniciando diagnóstico de conexão...")
     
-    # 1. Procura qualquer arquivo JSON na pasta
     arquivos_json = glob.glob("*.json")
-    
-    # Filtra para não pegar arquivos de sistema (como package.json se houver)
-    # Pega arquivos que tenham 'service' ou 'tranquil' ou 'client' no nome, ou apenas seja o único json
     arquivo_chave = None
     
     if len(arquivos_json) == 0:
-        st.error("❌ NENHUM arquivo JSON encontrado no GitHub.")
-        st.warning("👉 Passo necessário: Faça upload do arquivo de credenciais (ex: 'service_account.json') no botão 'Add file' do GitHub.")
+        st.error("❌ NENHUM arquivo JSON encontrado.")
         st.stop()
     elif len(arquivos_json) == 1:
         arquivo_chave = arquivos_json[0]
     else:
-        # Tenta achar o mais provável
         for f in arquivos_json:
-            if "tranquil" in f or "service" in f or "key" in f:
+            if "tranquil" in f or "service" in f:
                 arquivo_chave = f
                 break
         if not arquivo_chave: arquivo_chave = arquivos_json[0]
@@ -37,47 +30,58 @@ def conectar_banco():
     st.success(f"✅ Arquivo de chave encontrado: `{arquivo_chave}`")
 
     try:
-        # Tenta conectar usando o arquivo encontrado
         gc = gspread.service_account(filename=arquivo_chave)
-        
-        try:
-            sh = gc.open("banco_dados_insulina")
-            st.toast("Conexão com Planilha OK!")
-        except gspread.exceptions.SpreadsheetNotFound:
-            st.error("❌ Conectou no Google, mas não achou a planilha 'banco_dados_insulina'.")
-            st.info("Verifique se o nome da planilha está exato e se você compartilhou ela com o email do robô.")
-            st.stop()
-            
-        return sh
-
+        return gc
     except Exception as e:
-        st.error(f"❌ Erro Fatal na Chave: {e}")
-        st.warning("Isso significa que o arquivo JSON está corrompido ou é inválido. Gere uma nova chave no Google Cloud e suba novamente.")
+        st.error(f"❌ Erro ao ler a chave: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO ---
+# --- 3. PREPARAÇÃO DAS ABAS ---
 def preparar_abas():
-    sh = conectar_banco()
+    gc = conectar_banco()
+    
+    try:
+        sh = gc.open("banco_dados_insulina")
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error("❌ ERRO: Planilha 'banco_dados_insulina' não encontrada!")
+        st.warning("1. Crie uma planilha com esse nome exato.\n2. Compartilhe com o email do robô como EDITOR.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ ERRO ao abrir planilha: {e}")
+        st.info("Verifique se a API 'Google Sheets API' está ativada no console do Google Cloud.")
+        st.stop()
+
     try:
         sh.worksheet("usuarios")
     except:
-        ws = sh.add_worksheet("usuarios", 100, 5)
-        ws.append_row(["usuario", "senha", "criado_em"])
+        try:
+            ws = sh.add_worksheet("usuarios", 100, 5)
+            ws.append_row(["usuario", "senha", "criado_em"])
+        except Exception as e:
+            st.error(f"❌ Erro ao criar aba 'usuarios': {e}")
+            st.stop()
+            
     try:
         sh.worksheet("registros")
     except:
-        ws = sh.add_worksheet("registros", 1000, 10)
-        ws.append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
+        try:
+            ws = sh.add_worksheet("registros", 1000, 10)
+            ws.append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
+        except Exception as e:
+            st.error(f"❌ Erro ao criar aba 'registros': {e}")
+            st.stop()
+            
     return sh
 
 # --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
     
-    # O diagnóstico roda aqui
+    # Aqui estava o problema: agora vai mostrar o erro real!
     try:
         sh = preparar_abas()
-    except:
+    except Exception as e:
+        st.error(f"Erro Geral: {e}")
         st.stop()
 
     if 'logado' not in st.session_state: st.session_state.logado = False
