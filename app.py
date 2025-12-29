@@ -1,47 +1,82 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import glob
 import json
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO ---
-@st.cache_resource(ttl=600)
-def conectar_banco():
-    arquivos = glob.glob("*.json")
+# --- 2. CREDENCIAIS (COLE SUA CHAVE ABAIXO) ---
+def carregar_credenciais():
+    # 👇👇👇 ATENÇÃO: COLE O CONTEÚDO DO SEU ARQUIVO JSON ABAIXO 👇👇👇
+    # Mantenha as aspas triplas (""") no começo e no fim!
     
-    if not arquivos:
-        st.error("❌ ERRO: Nenhum arquivo .json encontrado na pasta.")
-        st.stop()
+    json_texto = """
     
-    arquivo_chave = arquivos[0]
+    {
+  "type": "service_account",
+  "project_id": "insulina-app-v2",
+  "private_key_id": "8aaa2ffb2ea8d252cb73e15fffb49901503825c9",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCxyu/XEwHPuHEj\nEtJXwbdwwoKCH4xl5JjzDhKB9k3aUkkGnslZrL/o7UQmmXG4OXWoRYH7FGK3iSQg\nDHnNN4eSlQNTqXP//gDyAjg/7PqPEGNMOhxdsJnBZM65k7C+R229i0LtUNqvvXXe\nEvIyWSMCdjhn7esDeje58jNpXDgDa3Q1d/4kj4glFr30/b6UESkMeDDCFZSbZZe3\nvtpcN7Hn/y0EAEBYwObvcc3IQvEHXHexYBInWj/aMDpT/hFGXUsbJzzJWiWXAAyd\no+X5C42Zd2nOQvnu9ZWxF9uPGBCO4RIC4W5RzEtEutafaD7FuSTawSTqqdUUlZLz\n3eQUhu1/AgMBAAECggEAE1WlZXc8sDE3pH/Mfhyj7VBJzwrNQttsQqpaGuYFK2Pd\naynjbawapqL+0U/IjSc6g1UjwIFEBv+T/SQ+LrIGPUuVNAjug31E7wyMv27vBJXc\nppJ/OTUWU3C6BnZoNxkfdwho+9PaJFhvM/pNemo1I3Rlx++YqiUlYERVkPSlZsGf\nRr1HTbTxw7jUwDSJJsTr2R1mAZNX5t4NwT+vxMlKzmxga87yNKhZypS+YtiD7dp/\nfIJg+GcnTQpG3nwUOucfRy2wRzlkvjakqtzNApP36Q3lbKCjrxwLPdl+pUiZSjKc\nJBeZcKe+pj+6Pqge5EKsA/fNfjmBTHnl3KBlz6RDyQKBgQDhFJuECZzGEVo5pxSf\nEytt4K5U6UZNvd1LIWqK+nUUO820SWs/6sz6CBUklxIDC523g03e2zss9G8bQcTP\n9KKkJTj1rxhG7HWA9bE1IyJt/3+CZYJLwdQSfYQZ+8WXbZVkyAWVSvltJPIMbyJK\nvCIsHyNiLRSo1gZT9NoP5wI32wKBgQDKN1zsp2Kz+P2fUI7zonGdyZM4cu3Banur\nQsOf7tCaczfMjxHuFrg/IGIfNAhGzLX5XSquL8a4zcZw1UUMDQm0fdoupPSJJ8eK\nodMoZhffl3YAPzD0TPcvulJUGZ4HF5nTbF2SHKgBJWkCkZpF67hd97dtQCaqNzBe\nscc3bDIULQKBgQCgoyl+qbGW9sly/hjMk0zahZFGDprbXxcxyK6Wc7vdbfUYp5GA\ns54JEH2ueJclT0QHthF8bPCl2+n0BRNm64ysI9isF4P3EkmmeTM43lNzN/cT5EiC\nstodPDFsrfDOaypFHDBH5ZNwXv7U+vf5aJ3m6W5CYjQtb1pizwxWbyN5IwKBgQCO\n/7Gl5QTGsphf9i7xGXnxFCAY9iUt9ug3hwIh8lbwMfROowoR7V0jvvnEiR4lOxSg\noALTpROJknL3TcoDKKEpUypce+g1qbzRS3iwg+n0Av6+U/GBgX/373HS6T64UzdD\nrMlKzxr7nIHzABYxxezd/pRnHMt66YY6IMv5ZHjRjQKBgAwwrGMTDPeMoiK9ecFZ\ngt0n99EuN3wpm+F4FIHlDNMk8w1YH5tiK+Hp5IAA7NZ/X7crNBu41HN3MTOvA4Zq\nlqqZ/EdRfSuykjv8x7FEjdLkEqVhlHlKMZYDKpUoTqMoD5FbncpSYFLwyW+KF/L6\nuVoj3siDZOpf4WS+NRyb2lPe\n-----END PRIVATE KEY-----\n",
+  "client_email": "robo-insulina@insulina-app-v2.iam.gserviceaccount.com",
+  "client_id": "108745775536733403179",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
     
-    # Diagnóstico: Mostra qual chave está usando
-    # st.warning(f"📂 Usando chave: {arquivo_chave}") 
+    """
     
+    # 👆👆👆 COLE ACIMA DESSA LINHA 👆👆👆
+
     try:
-        gc = gspread.service_account(filename=arquivo_chave)
-        return gc
+        # Limpa espaços e converte para dicionário
+        credenciais = json.loads(json_texto.strip())
+        return credenciais
+    except json.JSONDecodeError:
+        st.error("❌ Erro no JSON colado!")
+        st.warning("Verifique se você copiou TODO o conteúdo do arquivo, incluindo as chaves { e }.")
+        st.stop()
     except Exception as e:
-        st.error(f"❌ Erro na chave (JWT): {e}")
-        st.info("Sua chave pode estar corrompida. Gere uma nova no Google Cloud.")
+        st.error(f"❌ Erro ao ler credenciais: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO ---
+# --- 3. CONEXÃO ---
+@st.cache_resource(ttl=600)
+def conectar_banco():
+    credenciais = carregar_credenciais()
+    
+    try:
+        # Conecta usando o texto colado (sem precisar de arquivo na pasta)
+        gc = gspread.service_account_from_dict(credenciais)
+        return gc, credenciais.get("client_email")
+    except Exception as e:
+        st.error(f"❌ Erro de Conexão com o Google: {e}")
+        st.stop()
+
+# --- 4. PREPARAÇÃO ---
 def preparar_abas():
-    gc = conectar_banco()
+    gc, email_robo = conectar_banco()
     
     try:
         sh = gc.open("banco_dados_insulina")
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
-        st.warning("Verifique se o nome do arquivo no Google Drive é EXATAMENTE: banco_dados_insulina")
+        st.markdown(f"""
+        O aplicativo conectou, mas não achou a planilha!
+        
+        1. Vá na planilha **banco_dados_insulina** no Google Drive.
+        2. Clique em **Compartilhar**.
+        3. Cole o e-mail do robô abaixo e dê permissão de **EDITOR**:
+        """)
+        st.code(email_robo, language="text")
         st.stop()
     except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+        st.error(f"Erro ao abrir planilha: {e}")
         st.stop()
 
     try:
@@ -58,9 +93,15 @@ def preparar_abas():
             
     return sh
 
-# --- 4. APP PRINCIPAL ---
+# --- 5. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
+    
+    # Verifica se o usuário esqueceu de colar o JSON
+    if "APAGUE_ISSO" in """APAGUE_ISSO_E_COLE_O_JSON_AQUI""":
+        # Essa verificação é visual para o código não quebrar logo de cara
+        pass
+
     sh = preparar_abas()
 
     if 'logado' not in st.session_state: st.session_state.logado = False
@@ -150,13 +191,9 @@ def main():
                     ])
                     
                     st.divider()
-                    # AQUI ESTAVA O ERRO (Corrigido para o símbolo < )
-                    if glic > alvo + 40: 
-                        st.warning(f"Glicemia Alta ({glic})")
-                    elif glic < 70: 
-                        st.error(f"Hipoglicemia ({glic})")
-                    else: 
-                        st.success(f"Glicemia OK ({glic})")
+                    if glic > alvo + 40: st.warning(f"Glicemia Alta ({glic})")
+                    elif glic < 70: st.error(f"Hipoglicemia ({glic})")
+                    else: st.success(f"Glicemia OK ({glic})")
 
                     st.markdown(f"<h1 style='text-align:center; color:blue'>{dose} UI</h1>", unsafe_allow_html=True)
                     st.info(f"Cálculo: ({glic}-{alvo})/{fator} + {carbos}/{icr} = {total:.2f}")
