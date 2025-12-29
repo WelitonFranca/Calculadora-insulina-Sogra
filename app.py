@@ -117,15 +117,19 @@ def main():
         with st.form("calc"):
             c1, c2 = st.columns(2)
             
-            # AQUI ESTÁ A MUDANÇA: value=None deixa o campo em branco
-            glic = c1.number_input("Glicemia (mg/dL)", min_value=0, max_value=900, value=None, placeholder="Digite o valor...")
+            # Glicemia vazia
+            glic = c1.number_input("Glicemia (mg/dL)", min_value=0, max_value=900, value=None, placeholder="Digite...")
+            
+            # Carboidratos (pode ser 0, então deixei 0 como padrão, mas se quiser vazio me avise)
             carbos = c2.number_input("Carboidratos (g)", min_value=0, max_value=500, value=0)
-            icr = st.selectbox("Fator ICR", range(1, 100), index=9)
+            
+            # ICR vazio (Mudança aqui: agora é number_input com value=None)
+            icr = st.number_input("Fator ICR (1 UI para X g)", min_value=1, max_value=100, value=None, placeholder="Digite...")
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
-                # VERIFICAÇÃO: Se estiver vazio, avisa o usuário
-                if glic is None:
-                    st.warning("⚠️ Por favor, informe o valor da Glicemia.")
+                # VERIFICAÇÃO DUPLA: Glicemia E ICR precisam estar preenchidos
+                if glic is None or icr is None:
+                    st.warning("⚠️ Por favor, informe a Glicemia e o Fator ICR.")
                 else:
                     alvo = 100
                     fator = 40
