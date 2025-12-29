@@ -1,49 +1,45 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import json
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CREDENCIAIS (COM CORREÇÃO DE FORMATAÇÃO) ---
-def carregar_credenciais():
-    # Dicionário com suas credenciais
-    credenciais = {
-      "type": "service_account",
-      "project_id": "insulina-app-v2",
-      "private_key_id": "8aaa2ffb2ea8d252cb73e15fffb49901503825c9",
-      "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCxyu/XEwHPuHEj\nEtJXwbdwwoKCH4xl5JjzDhKB9k3aUkkGnslZrL/o7UQmmXG4OXWoRYH7FGK3iSQg\nDHnNN4eSlQNTqXP//gDyAjg/7PqPEGNMOhxdsJnBZM65k7C+R229i0LtUNqvvXXe\nEvIyWSMCdjhn7esDeje58jNpXDgDa3Q1d/4kj4glFr30/b6UESkMeDDCFZSbZZe3\nvtpcN7Hn/y0EAEBYwObvcc3IQvEHXHexYBInWj/aMDpT/hFGXUsbJzzJWiWXAAyd\no+X5C42Zd2nOQvnu9ZWxF9uPGBCO4RIC4W5RzEtEutafaD7FuSTawSTqqdUUlZLz\n3eQUhu1/AgMBAAECggEAE1WlZXc8sDE3pH/Mfhyj7VBJzwrNQttsQqpaGuYFK2Pd\naynjbawapqL+0U/IjSc6g1UjwIFEBv+T/SQ+LrIGPUuVNAjug31E7wyMv27vBJXc\nppJ/OTUWU3C6BnZoNxkfdwho+9PaJFhvM/pNemo1I3Rlx++YqiUlYERVkPSlZsGf\nRr1HTbTxw7jUwDSJJsTr2R1mAZNX5t4NwT+vxMlKzmxga87yNKhZypS+YtiD7dp/\nfIJg+GcnTQpG3nwUOucfRy2wRzlkvjakqtzNApP36Q3lbKCjrxwLPdl+pUiZSjKc\nJBeZcKe+pj+6Pqge5EKsA/fNfjmBTHnl3KBlz6RDyQKBgQDhFJuECZzGEVo5pxSf\nEytt4K5U6UZNvd1LIWqK+nUUO820SWs/6sz6CBUklxIDC523g03e2zss9G8bQcTP\n9KKkJTj1rxhG7HWA9bE1IyJt/3+CZYJLwdQSfYQZ+8WXbZVkyAWVSvltJPIMbyJK\nvCIsHyNiLRSo1gZT9NoP5wI32wKBgQDKN1zsp2Kz+P2fUI7zonGdyZM4cu3Banur\nQsOf7tCaczfMjxHuFrg/IGIfNAhGzLX5XSquL8a4zcZw1UUMDQm0fdoupPSJJ8eK\nodMoZhffl3YAPzD0TPcvulJUGZ4HF5nTbF2SHKgBJWkCkZpF67hd97dtQCaqNzBe\nscc3bDIULQKBgQCgoyl+qbGW9sly/hjMk0zahZFGDprbXxcxyK6Wc7vdbfUYp5GA\ns54JEH2ueJclT0QHthF8bPCl2+n0BRNm64ysI9isF4P3EkmmeTM43lNzN/cT5EiC\nstodPDFsrfDOaypFHDBH5ZNwXv7U+vf5aJ3m6W5CYjQtb1pizwxWbyN5IwKBgQCO\n/7Gl5QTGsphf9i7xGXnxFCAY9iUt9ug3hwIh8lbwMfROowoR7V0jvvnEiR4lOxSg\noALTpROJknL3TcoDKKEpUypce+g1qbzRS3iwg+n0Av6+U/GBgX/373HS6T64UzdD\nrMlKzxr7nIHzABYxxezd/pRnHMt66YY6IMv5ZHjRjQKBgAwwrGMTDPeMoiK9ecFZ\ngt0n99EuN3wpm+F4FIHlDNMk8w1YH5tiK+Hp5IAA7NZ/X7crNBu41HN3MTOvA4Zq\nlqqZ/EdRfSuykjv8x7FEjdLkEqVhlHlKMZYDKpUoTqMoD5FbncpSYFLwyW+KF/L6\nuVoj3siDZOpf4WS+NRyb2lPe\n-----END PRIVATE KEY-----\n",
-      "client_email": "robo-insulina@insulina-app-v2.iam.gserviceaccount.com",
-      "client_id": "108745775536733403179",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
-      "universe_domain": "googleapis.com"
-    }
-    
-    # --- CORREÇÃO MÁGICA ---
-    # Isso garante que o Python entenda as quebras de linha corretamente
-    credenciais["private_key"] = credenciais["private_key"].replace("\\n", "\n")
-    
-    return credenciais
-
-# --- 3. CONEXÃO ---
-@st.cache_resource(ttl=600)
+# --- 2. CONEXÃO VIA UPLOAD (A PROVA DE FALHAS) ---
 def conectar_banco():
-    credenciais = carregar_credenciais()
-    
-    try:
-        # Conecta usando o dicionário direto
-        gc = gspread.service_account_from_dict(credenciais)
-        return gc, credenciais.get("client_email")
-    except Exception as e:
-        st.error(f"❌ Erro de Conexão: {e}")
-        st.stop()
+    # Verifica se já conectou antes para não pedir o arquivo toda hora
+    if 'credenciais_ok' in st.session_state:
+        return st.session_state.credenciais_ok
 
-# --- 4. PREPARAÇÃO ---
+    st.markdown("### 🔐 Autenticação Necessária")
+    st.info("Para evitar erros de conexão, por favor arraste seu arquivo de chave (.json) abaixo.")
+    
+    arquivo = st.file_uploader("Solte sua chave JSON aqui", type="json")
+    
+    if arquivo is not None:
+        try:
+            # Lê o arquivo direto da fonte (sem erros de copiar/colar)
+            credenciais = json.load(arquivo)
+            
+            # Tenta conectar
+            gc = gspread.service_account_from_dict(credenciais)
+            
+            # Se der certo, salva na memória
+            st.session_state.credenciais_ok = (gc, credenciais.get("client_email"))
+            st.success("✅ Conectado com sucesso!")
+            st.rerun() # Recarrega a página para entrar no app
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao ler o arquivo: {e}")
+            st.stop()
+    else:
+        st.stop() # Para o código aqui até o usuário enviar o arquivo
+
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
+    # Chama a conexão (que agora pede o arquivo se precisar)
     gc, email_robo = conectar_banco()
     
     try:
@@ -51,20 +47,18 @@ def preparar_abas():
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        **Conexão realizada com sucesso!** (O erro JWT sumiu 🎉)
+        **Conexão realizada!** O arquivo está perfeito.
         
-        Agora só falta a permissão na planilha.
-        
-        1. Vá na planilha **banco_dados_insulina** no Google Drive.
-        2. Clique em **Compartilhar**.
-        3. Cole este e-mail abaixo e dê permissão de **EDITOR**:
+        Agora, vá na sua planilha **banco_dados_insulina** e compartilhe com:
         """)
         st.code(email_robo, language="text")
+        st.warning("Dê permissão de EDITOR.")
         st.stop()
     except Exception as e:
         st.error(f"Erro ao abrir planilha: {e}")
         st.stop()
 
+    # Cria as abas se não existirem
     try:
         sh.worksheet("usuarios")
     except:
@@ -79,9 +73,11 @@ def preparar_abas():
             
     return sh
 
-# --- 5. APP PRINCIPAL ---
+# --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
+    
+    # O app só passa daqui se o arquivo for enviado
     sh = preparar_abas()
 
     if 'logado' not in st.session_state: st.session_state.logado = False
