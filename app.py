@@ -2,48 +2,67 @@ import streamlit as st
 import pandas as pd
 import gspread
 import glob
+import json
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO (MÉTODO CLÁSSICO QUE FUNCIONAVA) ---
+# --- 2. CONEXÃO COM DIAGNÓSTICO ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
-    # Busca qualquer arquivo .json na pasta
-    arquivos_json = glob.glob("*.json")
+    # Busca arquivos .json
+    arquivos = glob.glob("*.json")
     
-    if not arquivos_json:
-        st.error("❌ Erro: Arquivo de credenciais (.json) não encontrado.")
+    # --- DIAGNÓSTICO VISUAL ---
+    if not arquivos:
+        st.error("❌ ERRO: A pasta está vazia! Nenhum arquivo .json encontrado.")
+        st.info("Por favor, coloque o arquivo de chave baixado do Google nesta pasta.")
         st.stop()
     
-    # Pega o primeiro que encontrar (geralmente só tem um)
-    arquivo_chave = arquivos_json[0]
+    # Pega o primeiro arquivo
+    arquivo_chave = arquivos[0]
+    
+    # MOSTRA NA TELA QUAL ARQUIVO ESTÁ SENDO USADO
+    st.warning(f"📂 Lendo chave de acesso: **{arquivo_chave}**")
+    
+    # Tenta ler o email do robô para ajudar
+    email_robo = "Desconhecido"
+    try:
+        with open(arquivo_chave) as f:
+            dados = json.load(f)
+            email_robo = dados.get("client_email", "Não encontrado")
+            st.caption(f"🤖 Robô identificado: {email_robo}")
+    except Exception as e:
+        st.error(f"❌ O arquivo **{arquivo_chave}** está corrompido! Erro: {e}")
+        st.stop()
 
     try:
         gc = gspread.service_account(filename=arquivo_chave)
-        return gc
+        return gc, email_robo
     except Exception as e:
-        st.error(f"❌ Erro ao autenticar: {e}")
+        st.error(f"❌ Erro de Autenticação (JWT): {e}")
+        st.info("Isso significa que a chave é inválida ou foi alterada. Gere uma nova no Google Cloud.")
         st.stop()
 
-# --- 3. PREPARAÇÃO DAS ABAS ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
-    gc = conectar_banco()
+    gc, email_robo = conectar_banco()
     
     try:
-        # Tenta abrir a planilha. 
-        # SE O SEU ARQUIVO TIVER OUTRO NOME, MUDE AQUI EMBAIXO 👇
         sh = gc.open("banco_dados_insulina")
     except gspread.exceptions.SpreadsheetNotFound:
-        st.error("❌ Planilha não encontrada no Google Drive.")
-        st.info("Dica: Verifique se o nome do arquivo no Drive é exatamente: banco_dados_insulina")
+        st.error("❌ PLANILHA NÃO ENCONTRADA")
+        st.markdown(f"""
+        1. Crie uma planilha em **sheets.new**
+        2. Mude o nome para: `banco_dados_insulina`
+        3. Compartilhe com o robô: `{email_robo}` (como Editor)
+        """)
         st.stop()
     except Exception as e:
         st.error(f"Erro de conexão: {e}")
         st.stop()
 
-    # Garante que as abas existem
     try:
         sh.worksheet("usuarios")
     except:
@@ -66,7 +85,7 @@ def main():
     if 'logado' not in st.session_state: st.session_state.logado = False
     if 'usuario_atual' not in st.session_state: st.session_state.usuario_atual = ""
 
-    # --- TELA DE LOGIN / CADASTRO ---
+    # --- TELA DE LOGIN ---
     if not st.session_state.logado:
         tab1, tab2 = st.tabs(["Login", "Cadastro"])
         
@@ -89,9 +108,9 @@ def main():
                             st.session_state.usuario_atual = u
                             st.rerun()
                         else:
-                            st.error("Usuário ou senha incorretos.")
+                            st.error("Dados incorretos.")
                     else:
-                        st.warning("Nenhum usuário cadastrado.")
+                        st.warning("Sem usuários.")
         
         with tab2:
             with st.form("cadastro"):
@@ -99,68 +118,66 @@ def main():
                 np = st.text_input("Nova Senha", type="password").strip()
                 if st.form_submit_button("Criar Conta"):
                     ws = sh.worksheet("usuarios")
-                    existing = ws.col_values(1)
-                    if nu in existing:
+                    exist = ws.col_values(1)
+                    if nu in exist:
                         st.error("Usuário já existe.")
                     else:
-                        data_br = datetime.now() - timedelta(hours=3)
-                        ws.append_row([nu, np, str(data_br)])
-                        st.success("Conta criada! Faça login.")
+                        d = datetime.now() - timedelta(hours=3)
+                        ws.append_row([nu, np, str(d)])
+                        st.success("Criado! Faça login.")
 
     # --- ÁREA LOGADA ---
     else:
-        c_user, c_logout = st.columns([3, 1])
-        c_user.success(f"Olá, **{st.session_state.usuario_atual}**!")
-        if c_logout.button("Sair"):
+        c1, c2 = st.columns([3, 1])
+        c1.success(f"Olá, **{st.session_state.usuario_atual}**!")
+        if c2.button("Sair"):
             st.session_state.logado = False
             st.rerun()
         
         st.divider()
         
-        # --- FORMULÁRIO DE CÁLCULO ---
+        # CÁLCULO
         st.subheader("Nova Medição")
         with st.form("calc"):
-            with st.expander("⚙️ Configurações Pessoais", expanded=False):
-                c_meta, c_fator = st.columns(2)
-                alvo = c_meta.number_input("Meta", value=100)
-                fator_sens = c_fator.number_input("Sensibilidade", value=40)
+            with st.expander("⚙️ Configurações", expanded=False):
+                col_a, col_b = st.columns(2)
+                alvo = col_a.number_input("Meta", value=100)
+                fator = col_b.number_input("Sensibilidade", value=40)
 
-            c1, c2 = st.columns(2)
-            
-            # Campos Verticais (Seguros)
-            glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None)
-            carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
+            c_glic, c_carb = st.columns(2)
+            glic = c_glic.number_input("Glicemia", min_value=0, max_value=900, value=None)
+            carbos = c_carb.number_input("Carboidratos", min_value=0, max_value=500, value=0)
             icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None)
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
                 if glic is None or icr is None:
-                    st.warning("⚠️ Preencha Glicemia e ICR.")
+                    st.warning("Preencha Glicemia e ICR.")
                 else:
-                    dose_correcao = (glic - alvo) / fator_sens
-                    dose_refeicao = carbos / icr
-                    dose_total = max(0, dose_correcao + dose_refeicao)
-                    dose_final = round(dose_total)
+                    corr = (glic - alvo) / fator
+                    ref = carbos / icr
+                    total = max(0, corr + ref)
+                    dose = round(total)
                     
-                    data_brasil = datetime.now() - timedelta(hours=3)
-                    data_formatada = data_brasil.strftime("%Y-%m-%d %H:%M")
+                    agora = datetime.now() - timedelta(hours=3)
+                    data_txt = agora.strftime("%Y-%m-%d %H:%M")
                     
                     ws = sh.worksheet("registros")
                     ws.append_row([
                         st.session_state.usuario_atual, 
-                        data_formatada, 
-                        glic, carbos, icr, dose_final
+                        data_txt, 
+                        glic, carbos, icr, dose
                     ])
                     
                     st.divider()
-                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic})")
-                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic})")
-                    else: st.success(f"✅ Glicemia Controlada ({glic})")
+                    if glic > alvo + 40: st.warning(f"Glicemia Alta ({glic})")
+                    elif glic &lt; 70: st.error(f"Hipoglicemia ({glic})")
+                    else: st.success(f"Glicemia OK ({glic})")
 
-                    st.markdown(f"<h1 style='text-align:center; color:blue'>{dose_final} UI</h1>", unsafe_allow_html=True)
-                    st.info(f"Cálculo: ({glic}-{alvo})/{fator_sens} + {carbos}/{icr} = {dose_total:.2f}")
+                    st.markdown(f"<h1 style='text-align:center; color:blue'>{dose} UI</h1>", unsafe_allow_html=True)
+                    st.info(f"Cálculo: ({glic}-{alvo})/{fator} + {carbos}/{icr} = {total:.2f}")
                     st.rerun()
 
-        # --- HISTÓRICO E EXCLUSÃO ---
+        # HISTÓRICO E EXCLUSÃO
         st.divider()
         st.subheader("Histórico")
         
@@ -170,39 +187,26 @@ def main():
             
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
-                
                 if 'usuario' in df.columns:
-                    # ID para apagar
                     df['id_linha'] = df.index + 2
-                    
-                    # Filtra usuário
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # Trata dados
                         df['data'] = pd.to_datetime(df['data'], errors='coerce')
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.dropna(subset=['data', 'glicemia'])
 
-                        # Gráfico
-                        st.caption("Evolução")
                         st.line_chart(df, x='data', y='glicemia')
                         
-                        # Tabela de Exclusão
                         st.caption("Marque para apagar:")
-                        
                         df_show = df.sort_values(by='data', ascending=False).copy()
                         df_show['Apagar'] = False
                         
-                        # Configura editor
                         df_edit = st.data_editor(
                             df_show[['Apagar', 'data', 'glicemia', 'carbos', 'dose', 'id_linha']],
                             column_config={
                                 "Apagar": st.column_config.CheckboxColumn(default=False),
                                 "data": st.column_config.DatetimeColumn(format="DD/MM HH:mm", disabled=True),
-                                "glicemia": st.column_config.NumberColumn("Glicemia", disabled=True),
-                                "carbos": st.column_config.NumberColumn("Carbos", disabled=True),
-                                "dose": st.column_config.NumberColumn("Dose", disabled=True),
                                 "id_linha": None
                             },
                             hide_index=True,
@@ -216,12 +220,10 @@ def main():
                                     ws.delete_rows(L)
                                 st.success("Apagado!")
                                 st.rerun()
-                            else:
-                                st.warning("Selecione algo para apagar.")
             else:
                 st.info("Sem dados.")
         except Exception as e:
-            st.error(f"Erro ao carregar: {e}")
+            st.error(f"Erro: {e}")
 
 if __name__ == "__main__":
     main()
