@@ -7,14 +7,12 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CREDENCIAIS (COLE SUA CHAVE ABAIXO) ---
+# --- 2. CREDENCIAIS ---
 def carregar_credenciais():
-    # 👇👇👇 ATENÇÃO: COLE O CONTEÚDO DO SEU ARQUIVO JSON ABAIXO 👇👇👇
-    # Mantenha as aspas triplas (""") no começo e no fim!
+    # 👇👇👇 ATENÇÃO MÁXIMA AQUI 👇👇👇
+    # Mantenha as aspas triplas (""") intactas!
     
-    json_texto = """
-    
-    {
+    json_texto = """{
   "type": "service_account",
   "project_id": "insulina-app-v2",
   "private_key_id": "8aaa2ffb2ea8d252cb73e15fffb49901503825c9",
@@ -27,22 +25,28 @@ def carregar_credenciais():
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
 }
-
-    
     """
     
-    # 👆👆👆 COLE ACIMA DESSA LINHA 👆👆👆
+    # 👆👆👆 O CONTEÚDO DEVE FICAR ENTRE AS ASPAS ACIMA 👆👆👆
 
     try:
-        # Limpa espaços e converte para dicionário
-        credenciais = json.loads(json_texto.strip())
+        # Limpa espaços vazios antes e depois
+        texto_limpo = json_texto.strip()
+        
+        # Verifica se começa e termina com chaves (sinal básico de JSON)
+        if not texto_limpo.startswith("{") or not texto_limpo.endswith("}"):
+            st.error("❌ Erro de Colagem!")
+            st.warning("O texto colado não parece um JSON. Ele deve começar com '{' e terminar com '}'.")
+            st.stop()
+            
+        credenciais = json.loads(texto_limpo)
         return credenciais
     except json.JSONDecodeError:
-        st.error("❌ Erro no JSON colado!")
-        st.warning("Verifique se você copiou TODO o conteúdo do arquivo, incluindo as chaves { e }.")
+        st.error("❌ Erro de Formatação!")
+        st.warning("O texto colado está incompleto ou corrompido. Tente copiar do arquivo novamente (Ctrl+A, Ctrl+C).")
         st.stop()
     except Exception as e:
-        st.error(f"❌ Erro ao ler credenciais: {e}")
+        st.error(f"❌ Erro desconhecido: {e}")
         st.stop()
 
 # --- 3. CONEXÃO ---
@@ -51,11 +55,11 @@ def conectar_banco():
     credenciais = carregar_credenciais()
     
     try:
-        # Conecta usando o texto colado (sem precisar de arquivo na pasta)
+        # Conecta direto com o dicionário
         gc = gspread.service_account_from_dict(credenciais)
         return gc, credenciais.get("client_email")
     except Exception as e:
-        st.error(f"❌ Erro de Conexão com o Google: {e}")
+        st.error(f"❌ Erro de Conexão: {e}")
         st.stop()
 
 # --- 4. PREPARAÇÃO ---
@@ -67,13 +71,13 @@ def preparar_abas():
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        O aplicativo conectou, mas não achou a planilha!
+        Conexão feita! Mas o robô não achou a planilha.
         
-        1. Vá na planilha **banco_dados_insulina** no Google Drive.
-        2. Clique em **Compartilhar**.
-        3. Cole o e-mail do robô abaixo e dê permissão de **EDITOR**:
+        1. Vá na planilha **banco_dados_insulina**
+        2. Compartilhe com este e-mail (Editor):
+        
+        `{email_robo}`
         """)
-        st.code(email_robo, language="text")
         st.stop()
     except Exception as e:
         st.error(f"Erro ao abrir planilha: {e}")
@@ -97,9 +101,8 @@ def preparar_abas():
 def main():
     st.title("💉 Controle de Insulina")
     
-    # Verifica se o usuário esqueceu de colar o JSON
-    if "APAGUE_ISSO" in """APAGUE_ISSO_E_COLE_O_JSON_AQUI""":
-        # Essa verificação é visual para o código não quebrar logo de cara
+    # Trava de segurança visual
+    if "APAGUE_ESTA_LINHA" in """APAGUE_ESTA_LINHA_E_COLE_AQUI""":
         pass
 
     sh = preparar_abas()
