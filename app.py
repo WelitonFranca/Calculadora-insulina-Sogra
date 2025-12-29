@@ -32,21 +32,13 @@ def conectar_banco():
         st.error(f"❌ Erro na chave: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO (COM DIAGNÓSTICO DETALHADO) ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
     gc = conectar_banco()
-    
-    # Tenta abrir a planilha e mostra o erro EXATO se falhar
     try:
         sh = gc.open("banco_dados_insulina")
-    except Exception as e:
-        st.error(f"❌ ERRO CRÍTICO: {e}")
-        st.warning("""
-        Verifique no seu Google Drive:
-        1. O nome da planilha é EXATAMENTE: banco_dados_insulina (sem espaços extras?)
-        2. A planilha ainda existe? (Não foi para a lixeira?)
-        3. O email do robô ainda está compartilhado?
-        """)
+    except:
+        st.error("❌ Planilha não encontrada.")
         st.stop()
 
     try:
@@ -132,70 +124,22 @@ def main():
 
             c1, c2 = st.columns(2)
             
-            glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None, placeholder="Digite...")
-            carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
-            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None, placeholder="Digite...")
-            
-            if st.form_submit_button("Calcular e Salvar", use_container_width=True):
-                if glic is None or icr is None:
-                    st.warning("⚠️ Preencha Glicemia e ICR.")
-                else:
-                    dose_correcao = (glic - alvo) / fator_sens
-                    dose_refeicao = carbos / icr
-                    dose_total = max(0, dose_correcao + dose_refeicao)
-                    dose_final = round(dose_total)
-                    
-                    data_brasil = datetime.now() - timedelta(hours=3)
-                    data_formatada = data_brasil.strftime("%Y-%m-%d %H:%M")
-                    
-                    ws = sh.worksheet("registros")
-                    ws.append_row([
-                        st.session_state.usuario_atual, 
-                        data_formatada, 
-                        glic, carbos, icr, dose_final
-                    ])
-                    
-                    st.divider()
-                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic}).")
-                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic}).")
-                    else: st.success(f"✅ Glicemia Controlada ({glic}).")
-
-                    st.markdown(f"<h1 style='text-align: center; color: #0068c9;'>{dose_final} UI</h1>", unsafe_allow_html=True)
-                    
-                    st.info(f"""
-                    **🧠 Memória de Cálculo:**
-                    1. Correção: ({glic} - {alvo}) ÷ {fator_sens} = **{dose_correcao:.2f}**
-                    2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
-                    3. Total: **{dose_total:.2f} UI**
-                    """)
-                    st.rerun()
-
-        # --- HISTÓRICO E GRÁFICO ---
-        st.divider()
-        st.subheader("📋 Relatório e Gráfico")
-        
-        try:
-            ws = sh.worksheet("registros")
-            dados = ws.get_all_records()
-            
-            if len(dados) > 0:
-                df = pd.DataFrame(dados)
-                
-                if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
-                    # Adiciona identificador da linha para exclusão
-                    df['linha_original'] = df.index + 2
-                    
-                    df = df[df['usuario'] == st.session_state.usuario_atual].copy()
-                    
-                    if not df.empty:
-                        df['data'] = pd.to_datetime(df['data'], errors='coerce')
-                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
-                        df = df.dropna(subset=['data', 'glicemia'])
-
-                        if not df.empty:
-                            st.caption("Evolução da Glicemia")
-                            st.line_chart(df, x='data', y='glicemia')
-                            
-                            st.divider()
-                            st.subheader("🗑️ Gerenciar Registros")
-                            st.caption("Marque para excluir e*
+            glic = c1.number_input(
+                "Glicemia", 
+                min_value=0, 
+                max_value=900, 
+                value=None, 
+                placeholder="Digite..."
+            )
+            carbos = c2.number_input(
+                "Carboidratos", 
+                min_value=0, 
+                max_value=500, 
+                value=0
+            )
+            icr = st.number_input(
+                "Fator ICR", 
+                min_value=1, 
+                max_value=100, 
+                value=None, 
+                placeholder="Digite..."*
