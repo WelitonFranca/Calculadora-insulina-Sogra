@@ -8,56 +8,37 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO COM DIAGNÓSTICO ---
+# --- 2. CONEXÃO ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
-    # Busca arquivos .json
     arquivos = glob.glob("*.json")
     
-    # --- DIAGNÓSTICO VISUAL ---
     if not arquivos:
-        st.error("❌ ERRO: A pasta está vazia! Nenhum arquivo .json encontrado.")
-        st.info("Por favor, coloque o arquivo de chave baixado do Google nesta pasta.")
+        st.error("❌ ERRO: Nenhum arquivo .json encontrado na pasta.")
         st.stop()
     
-    # Pega o primeiro arquivo
     arquivo_chave = arquivos[0]
     
-    # MOSTRA NA TELA QUAL ARQUIVO ESTÁ SENDO USADO
-    st.warning(f"📂 Lendo chave de acesso: **{arquivo_chave}**")
+    # Diagnóstico: Mostra qual chave está usando
+    # st.warning(f"📂 Usando chave: {arquivo_chave}") 
     
-    # Tenta ler o email do robô para ajudar
-    email_robo = "Desconhecido"
-    try:
-        with open(arquivo_chave) as f:
-            dados = json.load(f)
-            email_robo = dados.get("client_email", "Não encontrado")
-            st.caption(f"🤖 Robô identificado: {email_robo}")
-    except Exception as e:
-        st.error(f"❌ O arquivo **{arquivo_chave}** está corrompido! Erro: {e}")
-        st.stop()
-
     try:
         gc = gspread.service_account(filename=arquivo_chave)
-        return gc, email_robo
+        return gc
     except Exception as e:
-        st.error(f"❌ Erro de Autenticação (JWT): {e}")
-        st.info("Isso significa que a chave é inválida ou foi alterada. Gere uma nova no Google Cloud.")
+        st.error(f"❌ Erro na chave (JWT): {e}")
+        st.info("Sua chave pode estar corrompida. Gere uma nova no Google Cloud.")
         st.stop()
 
 # --- 3. PREPARAÇÃO ---
 def preparar_abas():
-    gc, email_robo = conectar_banco()
+    gc = conectar_banco()
     
     try:
         sh = gc.open("banco_dados_insulina")
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
-        st.markdown(f"""
-        1. Crie uma planilha em **sheets.new**
-        2. Mude o nome para: `banco_dados_insulina`
-        3. Compartilhe com o robô: `{email_robo}` (como Editor)
-        """)
+        st.warning("Verifique se o nome do arquivo no Google Drive é EXATAMENTE: banco_dados_insulina")
         st.stop()
     except Exception as e:
         st.error(f"Erro de conexão: {e}")
@@ -169,15 +150,19 @@ def main():
                     ])
                     
                     st.divider()
-                    if glic > alvo + 40: st.warning(f"Glicemia Alta ({glic})")
-                    elif glic &lt; 70: st.error(f"Hipoglicemia ({glic})")
-                    else: st.success(f"Glicemia OK ({glic})")
+                    # AQUI ESTAVA O ERRO (Corrigido para o símbolo < )
+                    if glic > alvo + 40: 
+                        st.warning(f"Glicemia Alta ({glic})")
+                    elif glic < 70: 
+                        st.error(f"Hipoglicemia ({glic})")
+                    else: 
+                        st.success(f"Glicemia OK ({glic})")
 
                     st.markdown(f"<h1 style='text-align:center; color:blue'>{dose} UI</h1>", unsafe_allow_html=True)
                     st.info(f"Cálculo: ({glic}-{alvo})/{fator} + {carbos}/{icr} = {total:.2f}")
                     st.rerun()
 
-        # HISTÓRICO E EXCLUSÃO
+        # HISTÓRICO
         st.divider()
         st.subheader("Histórico")
         
