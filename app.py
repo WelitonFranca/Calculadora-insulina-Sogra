@@ -113,44 +113,28 @@ def main():
         
         st.divider()
         
-        # --- FORMULÁRIO DE CÁLCULO ---
+        # --- FORMULÁRIO ---
         st.subheader("Nova Medição")
-        
         with st.form("calc"):
-            # Configurações Pessoais (Expansível para não poluir)
-            with st.expander("⚙️ Configurações Pessoais (Meta e Fator)", expanded=False):
-                st.caption("Ajuste conforme orientação médica:")
+            with st.expander("⚙️ Configurações Pessoais", expanded=False):
                 c_meta, c_fator = st.columns(2)
-                # Valores padrão: Meta 100, Fator 40
-                alvo = c_meta.number_input("Meta de Glicemia", value=100, step=10)
-                fator_sens = c_fator.number_input("Fator de Sensibilidade", value=40, step=5)
+                alvo = c_meta.number_input("Meta", value=100, step=10)
+                fator_sens = c_fator.number_input("Fator Sensibilidade", value=40, step=5)
 
             c1, c2 = st.columns(2)
-            glic = c1.number_input("Glicemia (mg/dL)", min_value=0, max_value=900, value=None, placeholder="Digite...")
-            carbos = c2.number_input("Carboidratos (g)", min_value=0, max_value=500, value=0)
-            icr = st.number_input("Fator ICR (1 UI para X g)", min_value=1, max_value=100, value=None, placeholder="Digite...")
+            glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None, placeholder="Digite...")
+            carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
+            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None, placeholder="Digite...")
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
                 if glic is None or icr is None:
                     st.warning("⚠️ Preencha Glicemia e ICR.")
                 else:
-                    # --- LÓGICA DE CÁLCULO ---
-                    # 1. Correção: (Glicemia - Meta) / Fator
-                    # Se glicemia for menor que a meta, o resultado é negativo (reduz a dose da comida)
                     dose_correcao = (glic - alvo) / fator_sens
-                    
-                    # 2. Refeição: Carbos / ICR
                     dose_refeicao = carbos / icr
-                    
-                    # 3. Total
-                    dose_total = dose_correcao + dose_refeicao
-                    
-                    # Segurança: Dose nunca pode ser menor que 0
-                    if dose_total < 0: dose_total = 0
-                    
+                    dose_total = max(0, dose_correcao + dose_refeicao)
                     dose_final = round(dose_total)
                     
-                    # Salvar no Google Sheets
                     ws = sh.worksheet("registros")
                     ws.append_row([
                         st.session_state.usuario_atual, 
@@ -158,34 +142,22 @@ def main():
                         glic, carbos, icr, dose_final
                     ])
                     
-                    # --- EXIBIÇÃO DO RESULTADO ---
                     st.divider()
-                    
-                    # Status da Glicemia
-                    if glic > alvo + 40:
-                        st.warning(f"⚠️ Glicemia Alta ({glic} mg/dL). Correção necessária.")
-                    elif glic < 70:
-                        st.error(f"🚨 Hipoglicemia ({glic} mg/dL). Cuidado com a insulina!")
-                    else:
-                        st.success(f"✅ Glicemia Controlada ({glic} mg/dL).")
+                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic}).")
+                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic}).")
+                    else: st.success(f"✅ Glicemia Controlada ({glic}).")
 
-                    # Resultado Grande
                     st.markdown(f"<h1 style='text-align: center; color: #0068c9;'>{dose_final} UI</h1>", unsafe_allow_html=True)
-                    st.caption("Dose Recomendada (Arredondada)")
                     
-                    # Memória de Cálculo Detalhada
                     st.info(f"""
                     **🧠 Memória de Cálculo:**
-                    
-                    1. **Correção:** ({glic} - {alvo} meta) ÷ {fator_sens} fator = **{dose_correcao:.2f} UI**
-                    2. **Refeição:** {carbos}g ÷ {icr} ICR = **{dose_refeicao:.2f} UI**
-                    3. **Soma:** {dose_correcao:.2f} + {dose_refeicao:.2f} = **{dose_total:.2f} UI**
+                    1. Correção: ({glic} - {alvo}) ÷ {fator_sens} = **{dose_correcao:.2f}**
+                    2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
+                    3. Total: **{dose_total:.2f} UI**
                     """)
-                    
-                    # Botão para atualizar histórico
                     st.button("Atualizar Histórico")
 
-        # --- HISTÓRICO ---
+        # --- HISTÓRICO BLINDADO ---
         st.divider()
         st.subheader("📋 Histórico")
         
@@ -195,18 +167,41 @@ def main():
             
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
-                if 'usuario' in df.columns and 'data' in df.columns:
-                    df = df[df['usuario'] == st.session_state.usuario_atual]
+                
+                # VERIFICAÇÃO DE COLUNAS
+                if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
+                    # Filtra usuário
+                    df = df[df['usuario'] == st.session_state.usuario_atual].copy()
+                    
                     if not df.empty:
+                        # 1. Converte DATA (Força formato correto)
                         df['data'] = pd.to_datetime(df['data'], errors='coerce')
-                        st.line_chart(df, x='data', y='glicemia')
-                        st.dataframe(df.sort_values(by='data', ascending=False).head(5), hide_index=True, use_container_width=True)
+                        
+                        # 2. Converte GLICEMIA (Força virar número, se tiver texto vira erro)
+                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
+                        
+                        # 3. Remove linhas com erro (datas ou números inválidos)
+                        df = df.dropna(subset=['data', 'glicemia'])
+
+                        if not df.empty:
+                            st.caption("Evolução da Glicemia")
+                            st.line_chart(df, x='data', y='glicemia')
+                            
+                            st.caption("Últimos Registros")
+                            # Formata a data para ficar bonita na tabela
+                            df_show = df.sort_values(by='data', ascending=False).head(5)
+                            df_show['data'] = df_show['data'].dt.strftime('%d/%m %H:%M')
+                            st.dataframe(df_show, hide_index=True, use_container_width=True)
+                        else:
+                            st.info("Dados insuficientes para gerar gráfico.")
                     else:
                         st.info("Sem registros ainda.")
+                else:
+                    st.warning("Erro na estrutura da planilha. Colunas faltando.")
             else:
                 st.info("Faça seu primeiro registro!")
         except Exception as e:
-            st.error(f"Erro no histórico: {e}")
+            st.error(f"Erro ao carregar dados: {e}")
 
 if __name__ == "__main__":
     main()
