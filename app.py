@@ -14,7 +14,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v3")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v4")
     
     if arquivo:
         try:
@@ -108,11 +108,9 @@ def main():
                     total = max(0, correcao + bolus_alim)
                     dose = round(total)
                     
-                    # --- AJUSTE DE DATA E HORA BRASÍLIA ---
-                    # Define fuso horário UTC-3 (Brasília)
+                    # DATA E HORA BRASÍLIA
                     fuso_brasilia = timezone(timedelta(hours=-3))
                     agora = datetime.now(fuso_brasilia)
-                    # Formata para DD/MM/AAAA HH:MM
                     data_formatada = agora.strftime("%d/%m/%Y %H:%M")
                     
                     ws = sh.worksheet("registros")
@@ -156,25 +154,32 @@ def main():
                 if 'usuario' in df.columns:
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     if not df.empty:
-                        # Converte a data considerando que o dia vem primeiro (dayfirst=True)
+                        # --- CORREÇÃO DE LEITURA DE DATAS ---
+                        # 1. Garante que tudo é texto
+                        df['data'] = df['data'].astype(str)
+                        
+                        # 2. Tenta converter usando o padrão Brasileiro (Dia primeiro)
+                        # O errors='coerce' faz com que, se falhar, vire NaT (Not a Time)
                         df['data'] = pd.to_datetime(df['data'], dayfirst=True, errors='coerce')
+                        
+                        # 3. Remove linhas onde a data ficou inválida (opcional, mas limpa o visual)
+                        df = df.dropna(subset=['data'])
+                        
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.sort_values('data')
                         
+                        # Gráfico
                         st.line_chart(df, x='data', y='glicemia')
                         
+                        # Tabela
                         df['id'] = df.index + 2
                         df_show = df[['data', 'glicemia', 'carbos', 'dose', 'id']].sort_values('data', ascending=False)
                         df_show['Apagar'] = False
                         
-                        # --- CONFIGURAÇÃO DA TABELA (DATA BRASILEIRA) ---
                         edit = st.data_editor(
                             df_show, 
                             column_config={
-                                "data": st.column_config.DatetimeColumn(
-                                    "Data/Hora",
-                                    format="DD/MM/YYYY HH:mm" # Formato Brasileiro Explicito
-                                ),
+                                "data": st.column_config.DatetimeColumn("Data/Hora", format="DD/MM/YYYY HH:mm"),
                                 "Apagar": st.column_config.CheckboxColumn(default=False),
                                 "id": None
                             },
@@ -186,7 +191,8 @@ def main():
                             for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
                             st.success("Apagado!"); st.rerun()
             else: st.info("Sem dados.")
-        except: pass
+        except Exception as e: 
+            st.error(f"Erro ao ler histórico: {e}")
 
 if __name__ == "__main__":
     main()
