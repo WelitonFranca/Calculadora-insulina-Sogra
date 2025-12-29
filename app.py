@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v9")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v10")
     
     if arquivo:
         try:
@@ -193,4 +193,33 @@ def main():
                         elif df_grafico.empty:
                             st.info("Aguardando dados válidos...")
                         else:
-                            st.info("Selecione um
+                            st.info("Selecione um dado.")
+
+                        # TABELA
+                        st.markdown("### 📋 Tabela Detalhada")
+                        df['id'] = df.index + 2
+                        df_show = df.sort_values('id', ascending=False)
+                        df_show['Apagar'] = False
+                        
+                        edit = st.data_editor(
+                            df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
+                            column_config={
+                                "data_original": "Data/Hora",
+                                "glicemia": st.column_config.NumberColumn("Glicemia", format="%d"),
+                                "carbos": st.column_config.NumberColumn("Carbos (g)", format="%d"),
+                                "dose": st.column_config.NumberColumn("Dose (UI)", format="%d"),
+                                "Apagar": st.column_config.CheckboxColumn(default=False),
+                                "id": None
+                            },
+                            hide_index=True, use_container_width=True
+                        )
+                        
+                        if st.button("🗑️ Apagar Selecionados"):
+                            for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
+                            st.success("Apagado!"); time.sleep(1); st.rerun()
+            else: st.info("Sem dados.")
+        except Exception as e: 
+            st.error(f"Erro ao ler histórico: {e}")
+
+if __name__ == "__main__":
+    main()
