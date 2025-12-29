@@ -124,7 +124,7 @@ def main():
 
             c1, c2 = st.columns(2)
             
-            # FORMATAÇÃO SEGURA (VERTICAL) PARA EVITAR ERROS DE CÓPIA
+            # INPUTS VERTICAIS (SEGUROS)
             glic = c1.number_input(
                 "Glicemia", 
                 min_value=0, 
@@ -181,7 +181,10 @@ def main():
                     2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
                     3. Total: **{dose_total:.2f} UI**
                     """)
-                    st.button("Atualizar Histórico")
+                    
+                    # AQUI ESTAVA O ERRO: Removi o st.button()
+                    # O st.rerun() abaixo já atualiza tudo automaticamente
+                    st.rerun()
 
         # --- HISTÓRICO ---
         st.divider()
