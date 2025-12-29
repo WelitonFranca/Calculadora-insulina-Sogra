@@ -2,58 +2,34 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
-from google.oauth2 import service_account # Biblioteca oficial do Google
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 st.title("💉 Controle de Insulina")
 
-# --- 2. CONEXÃO ROBUSTA (MÉTODO GOOGLE AUTH) ---
+# --- 2. CONEXÃO VIA SECRETS (COFRE DIGITAL) ---
 def conectar_banco():
-    if 'conexao_ok' in st.session_state:
-        return st.session_state.conexao_ok
-
-    st.markdown("---")
-    st.warning("📂 **Arraste seu arquivo JSON abaixo:**")
-    
-    arquivo = st.file_uploader("Solte o arquivo aqui", type=["json"], key="loader_google_auth")
-    
-    if arquivo is not None:
-        try:
-            # 1. Lê o arquivo JSON
-            info_conta = json.load(arquivo)
-            
-            # 2. Define as permissões (Escopos)
-            escopos = [
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
-            
-            # 3. Autenticação via Biblioteca Oficial (Mais segura)
-            creds = service_account.Credentials.from_service_account_info(
-                info_conta, 
-                scopes=escopos
-            )
-            
-            # 4. Conecta no gspread usando as credenciais oficiais
-            gc = gspread.authorize(creds)
-            
-            # Salva na memória
-            email_robo = info_conta.get("client_email")
-            st.session_state.conexao_ok = (gc, email_robo)
-            
-            st.success(f"✅ CONEXÃO SEGURA REALIZADA! (Robô: {email_robo})")
-            st.rerun()
-            
-        except Exception as e:
-            st.error("❌ Falha na Autenticação:")
-            st.error(f"{e}")
+    try:
+        # Busca a chave direto do cofre do Streamlit
+        # Isso evita erros de formatação de arquivo
+        if "google_creds" in st.secrets:
+            json_string = st.secrets["google_creds"]["json_content"]
+            credenciais = json.loads(json_string)
+        else:
+            st.error("❌ ERRO: Cofre não configurado!")
+            st.info("Vá em Settings > Secrets e configure conforme o tutorial.")
             st.stop()
-    else:
+            
+        # Conecta no Google
+        gc = gspread.service_account_from_dict(credenciais)
+        return gc, credenciais.get("client_email")
+        
+    except Exception as e:
+        st.error(f"❌ Erro de Conexão: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO DA PLANILHA ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
     gc, email_robo = conectar_banco()
     
@@ -62,10 +38,12 @@ def preparar_abas():
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        **Atenção:** O robô conectou, mas não tem permissão na planilha.
+        **Conexão Segura Estabelecida!** 
+        
+        O robô conectou, mas não tem permissão na planilha.
         
         1. Vá na planilha **banco_dados_insulina**
-        2. Compartilhe com este e-mail (como **EDITOR**):
+        2. Compartilhe com este e-mail (Editor):
         """)
         st.code(email_robo, language="text")
         st.stop()
@@ -73,7 +51,6 @@ def preparar_abas():
         st.error(f"Erro ao abrir planilha: {e}")
         st.stop()
 
-    # Cria as abas se não existirem
     try:
         sh.worksheet("usuarios")
     except:
