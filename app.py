@@ -6,11 +6,10 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CREDENCIAIS (JÁ CONVERTIDAS PARA PYTHON) ---
+# --- 2. CREDENCIAIS (COM CORREÇÃO DE FORMATAÇÃO) ---
 def carregar_credenciais():
-    # AQUI ESTÁ A MÁGICA: Em vez de texto, usamos um Dicionário direto.
-    # Não mexa em nada aqui dentro!
-    return {
+    # Dicionário com suas credenciais
+    credenciais = {
       "type": "service_account",
       "project_id": "insulina-app-v2",
       "private_key_id": "8aaa2ffb2ea8d252cb73e15fffb49901503825c9",
@@ -23,6 +22,12 @@ def carregar_credenciais():
       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
       "universe_domain": "googleapis.com"
     }
+    
+    # --- CORREÇÃO MÁGICA ---
+    # Isso garante que o Python entenda as quebras de linha corretamente
+    credenciais["private_key"] = credenciais["private_key"].replace("\\n", "\n")
+    
+    return credenciais
 
 # --- 3. CONEXÃO ---
 @st.cache_resource(ttl=600)
@@ -46,7 +51,9 @@ def preparar_abas():
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        O aplicativo conectou com sucesso! Agora só falta a permissão.
+        **Conexão realizada com sucesso!** (O erro JWT sumiu 🎉)
+        
+        Agora só falta a permissão na planilha.
         
         1. Vá na planilha **banco_dados_insulina** no Google Drive.
         2. Clique em **Compartilhar**.
