@@ -116,28 +116,33 @@ def main():
         st.subheader("Nova Medição")
         with st.form("calc"):
             c1, c2 = st.columns(2)
-            glic = c1.number_input("Glicemia (mg/dL)", 0, 900, value=100)
-            carbos = c2.number_input("Carboidratos (g)", 0, 500, value=0)
+            
+            # AQUI ESTÁ A MUDANÇA: value=None deixa o campo em branco
+            glic = c1.number_input("Glicemia (mg/dL)", min_value=0, max_value=900, value=None, placeholder="Digite o valor...")
+            carbos = c2.number_input("Carboidratos (g)", min_value=0, max_value=500, value=0)
             icr = st.selectbox("Fator ICR", range(1, 100), index=9)
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
-                alvo = 100
-                fator = 40
-                corr = (glic - alvo) / fator if glic > alvo else 0
-                ref = carbos / icr
-                dose = round(corr + ref)
-                
-                ws = sh.worksheet("registros")
-                ws.append_row([
-                    st.session_state.usuario_atual, 
-                    datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                    glic, carbos, icr, dose
-                ])
-                st.success(f"✅ Dose Recomendada: **{dose} UI**")
-                # Recarrega a página para atualizar o gráfico imediatamente
-                st.rerun()
+                # VERIFICAÇÃO: Se estiver vazio, avisa o usuário
+                if glic is None:
+                    st.warning("⚠️ Por favor, informe o valor da Glicemia.")
+                else:
+                    alvo = 100
+                    fator = 40
+                    corr = (glic - alvo) / fator if glic > alvo else 0
+                    ref = carbos / icr
+                    dose = round(corr + ref)
+                    
+                    ws = sh.worksheet("registros")
+                    ws.append_row([
+                        st.session_state.usuario_atual, 
+                        datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                        glic, carbos, icr, dose
+                    ])
+                    st.success(f"✅ Dose Recomendada: **{dose} UI**")
+                    st.rerun()
 
-        # 2. VISUALIZAÇÃO DE DADOS (GRÁFICO E TABELA)
+        # 2. VISUALIZAÇÃO DE DADOS
         st.divider()
         
         try:
@@ -146,20 +151,15 @@ def main():
             
             if dados:
                 df = pd.DataFrame(dados)
-                # Filtra apenas o usuário atual
                 df = df[df['usuario'] == st.session_state.usuario_atual]
                 
                 if not df.empty:
-                    # Converte a coluna 'data' para formato de data real para o gráfico funcionar
                     df['data'] = pd.to_datetime(df['data'])
                     
-                    # GRÁFICO
                     st.subheader("📈 Evolução da Glicemia")
                     st.line_chart(df, x='data', y='glicemia')
                     
-                    # TABELA (HISTÓRICO)
                     st.subheader("📋 Histórico Recente")
-                    # Mostra os últimos 5 registros, do mais novo para o mais antigo
                     st.dataframe(
                         df.sort_values(by='data', ascending=False).head(5), 
                         use_container_width=True,
@@ -171,7 +171,7 @@ def main():
                 st.info("Comece a registrar para ver o gráfico!")
                 
         except Exception as e:
-            st.warning(f"Ainda não há dados suficientes para o gráfico. ({e})")
+            st.warning(f"Aguardando dados... ({e})")
 
 if __name__ == "__main__":
     main()
