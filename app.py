@@ -7,7 +7,7 @@ from datetime import datetime
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO SILENCIOSA ---
+# --- 2. CONEXÃO ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
     arquivos_json = glob.glob("*.json")
@@ -74,7 +74,8 @@ def main():
                 if st.form_submit_button("Entrar"):
                     ws = sh.worksheet("usuarios")
                     try:
-                        df = pd.DataFrame(ws.get_all_records()).astype(str)
+                        dados = ws.get_all_records()
+                        df = pd.DataFrame(dados).astype(str)
                     except:
                         df = pd.DataFrame()
                     
@@ -112,41 +113,79 @@ def main():
         
         st.divider()
         
-        # 1. FORMULÁRIO DE CÁLCULO
+        # --- FORMULÁRIO DE CÁLCULO ---
         st.subheader("Nova Medição")
+        
         with st.form("calc"):
+            # Configurações Pessoais (Expansível para não poluir)
+            with st.expander("⚙️ Configurações Pessoais (Meta e Fator)", expanded=False):
+                st.caption("Ajuste conforme orientação médica:")
+                c_meta, c_fator = st.columns(2)
+                # Valores padrão: Meta 100, Fator 40
+                alvo = c_meta.number_input("Meta de Glicemia", value=100, step=10)
+                fator_sens = c_fator.number_input("Fator de Sensibilidade", value=40, step=5)
+
             c1, c2 = st.columns(2)
-            
-            # Glicemia vazia (value=None)
             glic = c1.number_input("Glicemia (mg/dL)", min_value=0, max_value=900, value=None, placeholder="Digite...")
-            
-            # Carboidratos
             carbos = c2.number_input("Carboidratos (g)", min_value=0, max_value=500, value=0)
-            
-            # ICR vazio (value=None)
             icr = st.number_input("Fator ICR (1 UI para X g)", min_value=1, max_value=100, value=None, placeholder="Digite...")
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
-                # VERIFICAÇÃO DUPLA
                 if glic is None or icr is None:
-                    st.warning("⚠️ Por favor, informe a Glicemia e o Fator ICR.")
+                    st.warning("⚠️ Preencha Glicemia e ICR.")
                 else:
-                    alvo = 100
-                    fator = 40
-                    corr = (glic - alvo) / fator if glic > alvo else 0
-                    ref = carbos / icr
-                    dose = round(corr + ref)
+                    # --- LÓGICA DE CÁLCULO ---
+                    # 1. Correção: (Glicemia - Meta) / Fator
+                    # Se glicemia for menor que a meta, o resultado é negativo (reduz a dose da comida)
+                    dose_correcao = (glic - alvo) / fator_sens
                     
+                    # 2. Refeição: Carbos / ICR
+                    dose_refeicao = carbos / icr
+                    
+                    # 3. Total
+                    dose_total = dose_correcao + dose_refeicao
+                    
+                    # Segurança: Dose nunca pode ser menor que 0
+                    if dose_total < 0: dose_total = 0
+                    
+                    dose_final = round(dose_total)
+                    
+                    # Salvar no Google Sheets
                     ws = sh.worksheet("registros")
                     ws.append_row([
                         st.session_state.usuario_atual, 
                         datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                        glic, carbos, icr, dose
+                        glic, carbos, icr, dose_final
                     ])
-                    st.success(f"✅ Dose Recomendada: **{dose} UI**")
-                    st.rerun()
+                    
+                    # --- EXIBIÇÃO DO RESULTADO ---
+                    st.divider()
+                    
+                    # Status da Glicemia
+                    if glic > alvo + 40:
+                        st.warning(f"⚠️ Glicemia Alta ({glic} mg/dL). Correção necessária.")
+                    elif glic < 70:
+                        st.error(f"🚨 Hipoglicemia ({glic} mg/dL). Cuidado com a insulina!")
+                    else:
+                        st.success(f"✅ Glicemia Controlada ({glic} mg/dL).")
 
-        # 2. VISUALIZAÇÃO DE DADOS (HISTÓRICO ROBUSTO)
+                    # Resultado Grande
+                    st.markdown(f"<h1 style='text-align: center; color: #0068c9;'>{dose_final} UI</h1>", unsafe_allow_html=True)
+                    st.caption("Dose Recomendada (Arredondada)")
+                    
+                    # Memória de Cálculo Detalhada
+                    st.info(f"""
+                    **🧠 Memória de Cálculo:**
+                    
+                    1. **Correção:** ({glic} - {alvo} meta) ÷ {fator_sens} fator = **{dose_correcao:.2f} UI**
+                    2. **Refeição:** {carbos}g ÷ {icr} ICR = **{dose_refeicao:.2f} UI**
+                    3. **Soma:** {dose_correcao:.2f} + {dose_refeicao:.2f} = **{dose_total:.2f} UI**
+                    """)
+                    
+                    # Botão para atualizar histórico
+                    st.button("Atualizar Histórico")
+
+        # --- HISTÓRICO ---
         st.divider()
         st.subheader("📋 Histórico")
         
@@ -156,35 +195,18 @@ def main():
             
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
-                
-                # Garante que as colunas existem
                 if 'usuario' in df.columns and 'data' in df.columns:
-                    df_filtrado = df[df['usuario'] == st.session_state.usuario_atual].copy()
-                    
-                    if not df_filtrado.empty:
-                        # Converte data
-                        df_filtrado['data'] = pd.to_datetime(df_filtrado['data'], errors='coerce')
-                        
-                        # Gráfico
-                        st.caption("Evolução da Glicemia")
-                        st.line_chart(df_filtrado, x='data', y='glicemia')
-                        
-                        # Tabela
-                        st.caption("Últimos Registros")
-                        st.dataframe(
-                            df_filtrado.sort_values(by='data', ascending=False).head(10), 
-                            use_container_width=True,
-                            hide_index=True
-                        )
+                    df = df[df['usuario'] == st.session_state.usuario_atual]
+                    if not df.empty:
+                        df['data'] = pd.to_datetime(df['data'], errors='coerce')
+                        st.line_chart(df, x='data', y='glicemia')
+                        st.dataframe(df.sort_values(by='data', ascending=False).head(5), hide_index=True, use_container_width=True)
                     else:
-                        st.info("Nenhum registro encontrado para este usuário.")
-                else:
-                    st.warning("Estrutura da planilha incorreta. Tente apagar a aba 'registros' no Google Sheets.")
+                        st.info("Sem registros ainda.")
             else:
-                st.info("O histórico está vazio. Faça seu primeiro registro acima! 👆")
-                
+                st.info("Faça seu primeiro registro!")
         except Exception as e:
-            st.error(f"Erro ao carregar histórico: {e}")
+            st.error(f"Erro no histórico: {e}")
 
 if __name__ == "__main__":
     main()
