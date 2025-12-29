@@ -14,7 +14,6 @@ def carregar_credenciais():
     
     # O 'r' antes das aspas é OBRIGATÓRIO (significa Raw String)
     json_texto = r"""
-    
     {
   "type": "service_account",
   "project_id": "insulina-app-v2",
@@ -28,8 +27,7 @@ def carregar_credenciais():
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
 }
-  
-    """
+"""
     
     try:
         # Limpeza e conversão
