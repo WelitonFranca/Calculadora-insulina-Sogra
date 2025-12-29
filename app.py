@@ -7,43 +7,40 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO (MÉTODO CLÁSSICO QUE FUNCIONAVA) ---
+# --- 2. CONEXÃO ---
 @st.cache_resource(ttl=600)
 def conectar_banco():
-    # Busca qualquer arquivo .json na pasta
     arquivos_json = glob.glob("*.json")
+    arquivo_chave = None
     
-    if not arquivos_json:
-        st.error("❌ Erro: Arquivo de credenciais (.json) não encontrado.")
+    if len(arquivos_json) == 0:
+        st.error("❌ Erro: Nenhum arquivo .json encontrado.")
         st.stop()
-    
-    # Pega o primeiro que encontrar (geralmente só tem um)
-    arquivo_chave = arquivos_json[0]
+    elif len(arquivos_json) == 1:
+        arquivo_chave = arquivos_json[0]
+    else:
+        for f in arquivos_json:
+            if "tranquil" in f or "service" in f:
+                arquivo_chave = f
+                break
+        if not arquivo_chave: arquivo_chave = arquivos_json[0]
 
     try:
         gc = gspread.service_account(filename=arquivo_chave)
         return gc
     except Exception as e:
-        st.error(f"❌ Erro ao autenticar: {e}")
+        st.error(f"❌ Erro na chave: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO DAS ABAS ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
     gc = conectar_banco()
-    
     try:
-        # Tenta abrir a planilha. 
-        # SE O SEU ARQUIVO TIVER OUTRO NOME, MUDE AQUI EMBAIXO 👇
         sh = gc.open("banco_dados_insulina")
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error("❌ Planilha não encontrada no Google Drive.")
-        st.info("Dica: Verifique se o nome do arquivo no Drive é exatamente: banco_dados_insulina")
-        st.stop()
-    except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+    except:
+        st.error("❌ Planilha não encontrada.")
         st.stop()
 
-    # Garante que as abas existem
     try:
         sh.worksheet("usuarios")
     except:
@@ -89,7 +86,7 @@ def main():
                             st.session_state.usuario_atual = u
                             st.rerun()
                         else:
-                            st.error("Usuário ou senha incorretos.")
+                            st.error("Dados incorretos.")
                     else:
                         st.warning("Nenhum usuário cadastrado.")
         
@@ -105,7 +102,7 @@ def main():
                     else:
                         data_br = datetime.now() - timedelta(hours=3)
                         ws.append_row([nu, np, str(data_br)])
-                        st.success("Conta criada! Faça login.")
+                        st.success("Criado! Faça login.")
 
     # --- ÁREA LOGADA ---
     else:
@@ -117,20 +114,39 @@ def main():
         
         st.divider()
         
-        # --- FORMULÁRIO DE CÁLCULO ---
+        # --- FORMULÁRIO ---
         st.subheader("Nova Medição")
         with st.form("calc"):
             with st.expander("⚙️ Configurações Pessoais", expanded=False):
                 c_meta, c_fator = st.columns(2)
-                alvo = c_meta.number_input("Meta", value=100)
-                fator_sens = c_fator.number_input("Sensibilidade", value=40)
+                alvo = c_meta.number_input("Meta", value=100, step=10)
+                fator_sens = c_fator.number_input("Fator Sensibilidade", value=40, step=5)
 
             c1, c2 = st.columns(2)
             
-            # Campos Verticais (Seguros)
-            glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None)
-            carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
-            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None)
+            # INPUTS VERTICAIS (SEGUROS)
+            glic = c1.number_input(
+                "Glicemia", 
+                min_value=0, 
+                max_value=900, 
+                value=None, 
+                placeholder="Digite..."
+            )
+            
+            carbos = c2.number_input(
+                "Carboidratos", 
+                min_value=0, 
+                max_value=500, 
+                value=0
+            )
+            
+            icr = st.number_input(
+                "Fator ICR", 
+                min_value=1, 
+                max_value=100, 
+                value=None, 
+                placeholder="Digite..."
+            )
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
                 if glic is None or icr is None:
@@ -141,6 +157,7 @@ def main():
                     dose_total = max(0, dose_correcao + dose_refeicao)
                     dose_final = round(dose_total)
                     
+                    # Hora Brasil
                     data_brasil = datetime.now() - timedelta(hours=3)
                     data_formatada = data_brasil.strftime("%Y-%m-%d %H:%M")
                     
@@ -152,17 +169,26 @@ def main():
                     ])
                     
                     st.divider()
-                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic})")
-                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic})")
-                    else: st.success(f"✅ Glicemia Controlada ({glic})")
+                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic}).")
+                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic}).")
+                    else: st.success(f"✅ Glicemia Controlada ({glic}).")
 
-                    st.markdown(f"<h1 style='text-align:center; color:blue'>{dose_final} UI</h1>", unsafe_allow_html=True)
-                    st.info(f"Cálculo: ({glic}-{alvo})/{fator_sens} + {carbos}/{icr} = {dose_total:.2f}")
+                    st.markdown(f"<h1 style='text-align: center; color: #0068c9;'>{dose_final} UI</h1>", unsafe_allow_html=True)
+                    
+                    st.info(f"""
+                    **🧠 Memória de Cálculo:**
+                    1. Correção: ({glic} - {alvo}) ÷ {fator_sens} = **{dose_correcao:.2f}**
+                    2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
+                    3. Total: **{dose_total:.2f} UI**
+                    """)
+                    
+                    # AQUI ESTAVA O ERRO: Removi o st.button()
+                    # O st.rerun() abaixo já atualiza tudo automaticamente
                     st.rerun()
 
-        # --- HISTÓRICO E EXCLUSÃO ---
+        # --- HISTÓRICO ---
         st.divider()
-        st.subheader("Histórico")
+        st.subheader("📋 Histórico")
         
         try:
             ws = sh.worksheet("registros")
@@ -171,57 +197,32 @@ def main():
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
                 
-                if 'usuario' in df.columns:
-                    # ID para apagar
-                    df['id_linha'] = df.index + 2
-                    
-                    # Filtra usuário
+                if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # Trata dados
                         df['data'] = pd.to_datetime(df['data'], errors='coerce')
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.dropna(subset=['data', 'glicemia'])
 
-                        # Gráfico
-                        st.caption("Evolução")
-                        st.line_chart(df, x='data', y='glicemia')
-                        
-                        # Tabela de Exclusão
-                        st.caption("Marque para apagar:")
-                        
-                        df_show = df.sort_values(by='data', ascending=False).copy()
-                        df_show['Apagar'] = False
-                        
-                        # Configura editor
-                        df_edit = st.data_editor(
-                            df_show[['Apagar', 'data', 'glicemia', 'carbos', 'dose', 'id_linha']],
-                            column_config={
-                                "Apagar": st.column_config.CheckboxColumn(default=False),
-                                "data": st.column_config.DatetimeColumn(format="DD/MM HH:mm", disabled=True),
-                                "glicemia": st.column_config.NumberColumn("Glicemia", disabled=True),
-                                "carbos": st.column_config.NumberColumn("Carbos", disabled=True),
-                                "dose": st.column_config.NumberColumn("Dose", disabled=True),
-                                "id_linha": None
-                            },
-                            hide_index=True,
-                            use_container_width=True
-                        )
-                        
-                        if st.button("🗑️ Apagar Selecionados", type="primary"):
-                            linhas = df_edit[df_edit['Apagar'] == True]['id_linha'].tolist()
-                            if linhas:
-                                for L in sorted(linhas, reverse=True):
-                                    ws.delete_rows(L)
-                                st.success("Apagado!")
-                                st.rerun()
-                            else:
-                                st.warning("Selecione algo para apagar.")
+                        if not df.empty:
+                            st.caption("Evolução da Glicemia")
+                            st.line_chart(df, x='data', y='glicemia')
+                            
+                            st.caption("Últimos Registros")
+                            df_show = df.sort_values(by='data', ascending=False).head(5)
+                            df_show['data'] = df_show['data'].dt.strftime('%d/%m %H:%M')
+                            st.dataframe(df_show, hide_index=True, use_container_width=True)
+                        else:
+                            st.info("Dados insuficientes.")
+                    else:
+                        st.info("Sem registros ainda.")
+                else:
+                    st.warning("Erro na estrutura da planilha.")
             else:
-                st.info("Sem dados.")
+                st.info("Faça seu primeiro registro!")
         except Exception as e:
-            st.error(f"Erro ao carregar: {e}")
+            st.error(f"Erro ao carregar dados: {e}")
 
 if __name__ == "__main__":
     main()
