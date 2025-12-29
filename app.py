@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
-import time # <--- Importante para o atraso de segurança
+import time
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v5")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v6")
     
     if arquivo:
         try:
@@ -110,7 +110,6 @@ def main():
                     total = max(0, correcao + bolus_alim)
                     dose = round(total)
                     
-                    # DATA E HORA BRASÍLIA
                     fuso_brasilia = timezone(timedelta(hours=-3))
                     agora = datetime.now(fuso_brasilia)
                     data_formatada = agora.strftime("%d/%m/%Y %H:%M")
@@ -126,9 +125,8 @@ def main():
                         "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
                     }
                     
-                    # --- O TRUQUE DO TEMPO ---
-                    st.toast("💾 Salvando no Google Sheets... Aguarde.")
-                    time.sleep(2) # Espera 2 segundos para o Google processar
+                    st.toast("💾 Salvando e atualizando gráfico...")
+                    time.sleep(2)
                     st.rerun()
                 else:
                     st.warning("Preencha Glicemia e ICR.")
@@ -149,41 +147,69 @@ def main():
                 st.session_state.ultimo_resultado = None
                 st.rerun()
 
-        # --- HISTÓRICO ---
+        # --- HISTÓRICO E GRÁFICO INTELIGENTE ---
         st.divider()
-        st.subheader("Histórico")
+        st.subheader("📊 Análise e Histórico")
+        
         try:
             ws = sh.worksheet("registros")
-            # Força pegar os dados frescos
             dados = ws.get_all_records()
             
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
                 if 'usuario' in df.columns:
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
+                    
                     if not df.empty:
-                        # --- TRATAMENTO ROBUSTO DE DADOS ---
-                        df['data_original'] = df['data'].astype(str) # Guarda o original
-                        
-                        # Tenta converter para data real para o GRÁFICO
+                        # 1. TRATAMENTO DE DADOS (CRUCIAL PARA O GRÁFICO)
+                        df['data_original'] = df['data'].astype(str)
                         df['data_grafico'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
-                        # Gráfico (Usa apenas datas válidas)
-                        df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
-                        df_grafico['glicemia'] = pd.to_numeric(df_grafico['glicemia'], errors='coerce')
-                        st.line_chart(df_grafico, x='data_grafico', y='glicemia')
+                        # Converte colunas numéricas (força virar número, se der erro vira 0)
+                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
+                        df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
+                        df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
                         
-                        # Tabela (Mostra TUDO, mesmo se a data estiver estranha)
+                        # Filtra apenas datas válidas para o gráfico
+                        df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
+                        
+                        # --- SELETOR DE DADOS DO GRÁFICO ---
+                        st.write("O que você deseja visualizar?")
+                        opcoes = st.multiselect(
+                            "Selecione as linhas do gráfico:",
+                            options=["Glicemia", "Carboidratos", "Dose Insulina"],
+                            default=["Glicemia"] # Padrão mostra só Glicemia
+                        )
+                        
+                        # Mapeia os nomes bonitos para os nomes das colunas
+                        mapa_colunas = {
+                            "Glicemia": "glicemia",
+                            "Carboidratos": "carbos",
+                            "Dose Insulina": "dose"
+                        }
+                        
+                        # Desenha o gráfico se houver algo selecionado
+                        if opcoes and not df_grafico.empty:
+                            colunas_para_plotar = [mapa_colunas[o] for o in opcoes]
+                            st.line_chart(df_grafico, x='data_grafico', y=colunas_para_plotar)
+                        elif df_grafico.empty:
+                            st.info("Aguardando datas válidas para gerar gráfico.")
+                        else:
+                            st.info("Selecione pelo menos uma opção acima.")
+
+                        # --- TABELA DE DADOS ---
+                        st.markdown("### 📋 Tabela Detalhada")
                         df['id'] = df.index + 2
-                        # Ordena pelo ID (últimos inseridos aparecem primeiro)
                         df_show = df.sort_values('id', ascending=False)
                         df_show['Apagar'] = False
                         
-                        # Mostra a tabela usando a coluna de texto original para não sumir nada
                         edit = st.data_editor(
                             df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
                             column_config={
                                 "data_original": "Data/Hora",
+                                "glicemia": st.column_config.NumberColumn("Glicemia", format="%d"),
+                                "carbos": st.column_config.NumberColumn("Carbos (g)", format="%d"),
+                                "dose": st.column_config.NumberColumn("Dose (UI)", format="%d"),
                                 "Apagar": st.column_config.CheckboxColumn(default=False),
                                 "id": None
                             },
@@ -194,7 +220,7 @@ def main():
                         if st.button("🗑️ Apagar Selecionados"):
                             for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
                             st.success("Apagado!"); time.sleep(1); st.rerun()
-            else: st.info("Sem dados.")
+            else: st.info("Sem dados para exibir.")
         except Exception as e: 
             st.error(f"Erro ao ler histórico: {e}")
 
