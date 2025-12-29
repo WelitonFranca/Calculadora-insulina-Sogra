@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
+import time # <--- Importante para o atraso de segurança
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v4")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v5")
     
     if arquivo:
         try:
@@ -25,6 +26,7 @@ def conectar_seguro():
             email = info_conta.get("client_email")
             st.session_state.conexao_google = (gc, email)
             st.success("✅ Conectado!")
+            time.sleep(1)
             st.rerun()
         except Exception as e:
             st.error(f"❌ Erro: {e}")
@@ -123,6 +125,10 @@ def main():
                         "total": total, "dose": dose,
                         "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
                     }
+                    
+                    # --- O TRUQUE DO TEMPO ---
+                    st.toast("💾 Salvando no Google Sheets... Aguarde.")
+                    time.sleep(2) # Espera 2 segundos para o Google processar
                     st.rerun()
                 else:
                     st.warning("Preencha Glicemia e ICR.")
@@ -148,38 +154,36 @@ def main():
         st.subheader("Histórico")
         try:
             ws = sh.worksheet("registros")
+            # Força pegar os dados frescos
             dados = ws.get_all_records()
+            
             if len(dados) > 0:
                 df = pd.DataFrame(dados)
                 if 'usuario' in df.columns:
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     if not df.empty:
-                        # --- CORREÇÃO DE LEITURA DE DATAS ---
-                        # 1. Garante que tudo é texto
-                        df['data'] = df['data'].astype(str)
+                        # --- TRATAMENTO ROBUSTO DE DADOS ---
+                        df['data_original'] = df['data'].astype(str) # Guarda o original
                         
-                        # 2. Tenta converter usando o padrão Brasileiro (Dia primeiro)
-                        # O errors='coerce' faz com que, se falhar, vire NaT (Not a Time)
-                        df['data'] = pd.to_datetime(df['data'], dayfirst=True, errors='coerce')
+                        # Tenta converter para data real para o GRÁFICO
+                        df['data_grafico'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
-                        # 3. Remove linhas onde a data ficou inválida (opcional, mas limpa o visual)
-                        df = df.dropna(subset=['data'])
+                        # Gráfico (Usa apenas datas válidas)
+                        df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
+                        df_grafico['glicemia'] = pd.to_numeric(df_grafico['glicemia'], errors='coerce')
+                        st.line_chart(df_grafico, x='data_grafico', y='glicemia')
                         
-                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
-                        df = df.sort_values('data')
-                        
-                        # Gráfico
-                        st.line_chart(df, x='data', y='glicemia')
-                        
-                        # Tabela
+                        # Tabela (Mostra TUDO, mesmo se a data estiver estranha)
                         df['id'] = df.index + 2
-                        df_show = df[['data', 'glicemia', 'carbos', 'dose', 'id']].sort_values('data', ascending=False)
+                        # Ordena pelo ID (últimos inseridos aparecem primeiro)
+                        df_show = df.sort_values('id', ascending=False)
                         df_show['Apagar'] = False
                         
+                        # Mostra a tabela usando a coluna de texto original para não sumir nada
                         edit = st.data_editor(
-                            df_show, 
+                            df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
                             column_config={
-                                "data": st.column_config.DatetimeColumn("Data/Hora", format="DD/MM/YYYY HH:mm"),
+                                "data_original": "Data/Hora",
                                 "Apagar": st.column_config.CheckboxColumn(default=False),
                                 "id": None
                             },
@@ -189,7 +193,7 @@ def main():
                         
                         if st.button("🗑️ Apagar Selecionados"):
                             for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
-                            st.success("Apagado!"); st.rerun()
+                            st.success("Apagado!"); time.sleep(1); st.rerun()
             else: st.info("Sem dados.")
         except Exception as e: 
             st.error(f"Erro ao ler histórico: {e}")
