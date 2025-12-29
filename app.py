@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v7")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v8")
     
     if arquivo:
         try:
@@ -165,74 +165,4 @@ def main():
                         df['data_original'] = df['data'].astype(str)
                         df['data_grafico'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
-                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
-                        df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
-                        df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
-                        
-                        df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
-                        
-                        # --- CONTROLES DO GRÁFICO ---
-                        col_tipo, col_dados = st.columns([1, 2])
-                        
-                        with col_tipo:
-                            tipo_grafico = st.selectbox(
-                                "Tipo de Gráfico:",
-                                ["Linha", "Barra", "Área", "Dispersão (Pontos)"]
-                            )
-                        
-                        with col_dados:
-                            opcoes = st.multiselect(
-                                "Dados para visualizar:",
-                                ["Glicemia", "Carboidratos", "Dose Insulina"],
-                                default=["Glicemia"]
-                            )
-                        
-                        mapa_colunas = {"Glicemia": "glicemia", "Carboidratos": "carbos", "Dose Insulina": "dose"}
-                        
-                        # --- DESENHO DO GRÁFICO ---
-                        if opcoes and not df_grafico.empty:
-                            colunas_plot = [mapa_colunas[o] for o in opcoes]
-                            
-                            if tipo_grafico == "Linha":
-                                st.line_chart(df_grafico, x='data_grafico', y=colunas_plot)
-                            elif tipo_grafico == "Barra":
-                                st.bar_chart(df_grafico, x='data_grafico', y=colunas_plot)
-                            elif tipo_grafico == "Área":
-                                st.area_chart(df_grafico, x='data_grafico', y=colunas_plot)
-                            elif tipo_grafico == "Dispersão (Pontos)":
-                                st.scatter_chart(df_grafico, x='data_grafico', y=colunas_plot)
-                                
-                        elif df_grafico.empty:
-                            st.info("Aguardando dados válidos...")
-                        else:
-                            st.info("Selecione pelo menos um dado.")
-
-                        # --- TABELA ---
-                        st.markdown("### 📋 Tabela Detalhada")
-                        df['id'] = df.index + 2
-                        df_show = df.sort_values('id', ascending=False)
-                        df_show['Apagar'] = False
-                        
-                        edit = st.data_editor(
-                            df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
-                            column_config={
-                                "data_original": "Data/Hora",
-                                "glicemia": st.column_config.NumberColumn("Glicemia", format="%d"),
-                                "carbos": st.column_config.NumberColumn("Carbos (g)", format="%d"),
-                                "dose": st.column_config.NumberColumn("Dose (UI)", format="%d"),
-                                "Apagar": st.column_config.CheckboxColumn(default=False),
-                                "id": None
-                            },
-                            hide_index=True, 
-                            use_container_width=True
-                        )
-                        
-                        if st.button("🗑️ Apagar Selecionados"):
-                            for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
-                            st.success("Apagado!"); time.sleep(1); st.rerun()
-            else: st.info("Sem dados.")
-        except Exception as e: 
-            st.error(f"Erro ao ler histórico: {e}")
-
-if __name__ == "__main__":
-    main()
+                        df['glicemia'] =
