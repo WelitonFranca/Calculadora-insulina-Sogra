@@ -124,29 +124,9 @@ def main():
 
             c1, c2 = st.columns(2)
             
-            # INPUTS VERTICAIS (SEGUROS)
-            glic = c1.number_input(
-                "Glicemia", 
-                min_value=0, 
-                max_value=900, 
-                value=None, 
-                placeholder="Digite..."
-            )
-            
-            carbos = c2.number_input(
-                "Carboidratos", 
-                min_value=0, 
-                max_value=500, 
-                value=0
-            )
-            
-            icr = st.number_input(
-                "Fator ICR", 
-                min_value=1, 
-                max_value=100, 
-                value=None, 
-                placeholder="Digite..."
-            )
+            glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None, placeholder="Digite...")
+            carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
+            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None, placeholder="Digite...")
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
                 if glic is None or icr is None:
@@ -157,7 +137,6 @@ def main():
                     dose_total = max(0, dose_correcao + dose_refeicao)
                     dose_final = round(dose_total)
                     
-                    # Hora Brasil
                     data_brasil = datetime.now() - timedelta(hours=3)
                     data_formatada = data_brasil.strftime("%Y-%m-%d %H:%M")
                     
@@ -181,14 +160,11 @@ def main():
                     2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
                     3. Total: **{dose_total:.2f} UI**
                     """)
-                    
-                    # AQUI ESTAVA O ERRO: Removi o st.button()
-                    # O st.rerun() abaixo já atualiza tudo automaticamente
                     st.rerun()
 
-        # --- HISTÓRICO ---
+        # --- HISTÓRICO E GRÁFICO ---
         st.divider()
-        st.subheader("📋 Histórico")
+        st.subheader("📋 Relatório e Gráfico")
         
         try:
             ws = sh.worksheet("registros")
@@ -198,21 +174,75 @@ def main():
                 df = pd.DataFrame(dados)
                 
                 if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
+                    # Adiciona o número da linha original (para poder apagar depois)
+                    # +2 porque: índice começa em 0, header é linha 1, dados começam na 2
+                    df['linha_original'] = df.index + 2
+                    
+                    # Filtra usuário
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
+                        # Tratamento de dados
                         df['data'] = pd.to_datetime(df['data'], errors='coerce')
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.dropna(subset=['data', 'glicemia'])
 
                         if not df.empty:
+                            # 1. GRÁFICO
                             st.caption("Evolução da Glicemia")
                             st.line_chart(df, x='data', y='glicemia')
                             
-                            st.caption("Últimos Registros")
-                            df_show = df.sort_values(by='data', ascending=False).head(5)
-                            df_show['data'] = df_show['data'].dt.strftime('%d/%m %H:%M')
-                            st.dataframe(df_show, hide_index=True, use_container_width=True)
+                            st.divider()
+                            
+                            # 2. TABELA DE EXCLUSÃO (NOVA FUNCIONALIDADE)
+                            st.subheader("🗑️ Gerenciar Registros")
+                            st.caption("Marque a caixa 'Excluir' e clique no botão vermelho para apagar.")
+                            
+                            # Prepara tabela para edição
+                            df_display = df.sort_values(by='data', ascending=False).copy()
+                            df_display['Excluir'] = False # Cria coluna de checkbox
+                            
+                            # Colunas que serão mostradas
+                            colunas_visiveis = ['Excluir', 'data', 'glicemia', 'carbos', 'dose', 'linha_original']
+                            
+                            # Editor de dados
+                            df_editado = st.data_editor(
+                                df_display[colunas_visiveis],
+                                column_config={
+                                    "Excluir": st.column_config.CheckboxColumn(
+                                        "Apagar?",
+                                        help="Marque para excluir este registro",
+                                        default=False,
+                                    ),
+                                    "data": st.column_config.DatetimeColumn(
+                                        "Data/Hora",
+                                        format="DD/MM HH:mm",
+                                        disabled=True
+                                    ),
+                                    "glicemia": st.column_config.NumberColumn("Glicemia", disabled=True),
+                                    "carbos": st.column_config.NumberColumn("Carbos", disabled=True),
+                                    "dose": st.column_config.NumberColumn("Dose", disabled=True),
+                                    "linha_original": None # Esconde a coluna técnica
+                                },
+                                hide_index=True,
+                                use_container_width=True
+                            )
+                            
+                            # Botão de Apagar
+                            if st.button("🚨 Apagar Registros Marcados", type="primary"):
+                                # Filtra linhas marcadas
+                                linhas_para_apagar = df_editado[df_editado['Excluir'] == True]['linha_original'].tolist()
+                                
+                                if linhas_para_apagar:
+                                    # Apaga de baixo para cima para não bagunçar os índices
+                                    for linha in sorted(linhas_para_apagar, reverse=True):
+                                        ws.delete_rows(linha)
+                                    
+                                    st.success("Registros apagados com sucesso!")
+                                    st.rerun()
+                                else:
+                                    st.warning("Nenhum registro marcado para exclusão.")
+                                    
                         else:
                             st.info("Dados insuficientes.")
                     else:
