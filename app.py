@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 import json
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
@@ -14,7 +14,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v2")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v3")
     
     if arquivo:
         try:
@@ -51,10 +51,8 @@ def main():
     gc, email_robo = conectar_seguro()
     sh = preparar_planilha(gc, email_robo)
 
-    # Inicialização de Variáveis de Estado
     if 'logado' not in st.session_state: st.session_state.logado = False
     if 'usuario_atual' not in st.session_state: st.session_state.usuario_atual = ""
-    # Variável para segurar o resultado na tela
     if 'ultimo_resultado' not in st.session_state: st.session_state.ultimo_resultado = None
 
     # --- TELA DE LOGIN ---
@@ -105,18 +103,21 @@ def main():
             
             if st.form_submit_button("Calcular e Salvar", use_container_width=True):
                 if glic and icr:
-                    # Cálculos
                     correcao = (glic - alvo) / fator
                     bolus_alim = carbos / icr
                     total = max(0, correcao + bolus_alim)
                     dose = round(total)
                     
-                    # Salva no Google Sheets
-                    ws = sh.worksheet("registros")
-                    agora = datetime.now() - timedelta(hours=3)
-                    ws.append_row([st.session_state.usuario_atual, agora.strftime("%Y-%m-%d %H:%M"), glic, carbos, icr, dose])
+                    # --- AJUSTE DE DATA E HORA BRASÍLIA ---
+                    # Define fuso horário UTC-3 (Brasília)
+                    fuso_brasilia = timezone(timedelta(hours=-3))
+                    agora = datetime.now(fuso_brasilia)
+                    # Formata para DD/MM/AAAA HH:MM
+                    data_formatada = agora.strftime("%d/%m/%Y %H:%M")
                     
-                    # Salva o resultado na memória do App para exibir fora do form
+                    ws = sh.worksheet("registros")
+                    ws.append_row([st.session_state.usuario_atual, data_formatada, glic, carbos, icr, dose])
+                    
                     st.session_state.ultimo_resultado = {
                         "glic": glic, "alvo": alvo, "fator": fator,
                         "carbos": carbos, "icr": icr,
@@ -124,29 +125,22 @@ def main():
                         "total": total, "dose": dose,
                         "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
                     }
-                    st.rerun() # Atualiza a página para mostrar o resultado fixo
+                    st.rerun()
                 else:
                     st.warning("Preencha Glicemia e ICR.")
 
-        # --- EXIBIÇÃO DO RESULTADO (FORA DO FORMULÁRIO) ---
-        # Isso garante que a mensagem fique na tela e não suma
+        # --- MEMÓRIA DE CÁLCULO ---
         if st.session_state.ultimo_resultado:
             res = st.session_state.ultimo_resultado
-            
             st.markdown("---")
             st.markdown(f"<h3 style='text-align:center'>Resultado: {res['dose']} UI</h3>", unsafe_allow_html=True)
-            
-            # AQUI ESTÁ A MEMÓRIA DE CÁLCULO DETALHADA PARA O MÉDICO
             st.warning(f"""
-            **📝 Memória de Cálculo (Detalhes):**
-            
+            **📝 Memória de Cálculo:**
             1. **Correção:** ({res['glic']} - {res['alvo']}) ÷ {res['fator']} = **{res['correcao']:.2f}**
             2. **Comida:** {res['carbos']}g ÷ {res['icr']} = **{res['bolus']:.2f}**
             3. **Soma:** {res['correcao']:.2f} + {res['bolus']:.2f} = **{res['total']:.2f}**
-            
-            👉 **Dose Final Arredondada:** {res['dose']} UI
+            👉 **Dose Final:** {res['dose']} UI
             """)
-            
             if st.button("Limpar Resultado"):
                 st.session_state.ultimo_resultado = None
                 st.rerun()
@@ -162,7 +156,8 @@ def main():
                 if 'usuario' in df.columns:
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     if not df.empty:
-                        df['data'] = pd.to_datetime(df['data'], errors='coerce')
+                        # Converte a data considerando que o dia vem primeiro (dayfirst=True)
+                        df['data'] = pd.to_datetime(df['data'], dayfirst=True, errors='coerce')
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.sort_values('data')
                         
@@ -172,7 +167,21 @@ def main():
                         df_show = df[['data', 'glicemia', 'carbos', 'dose', 'id']].sort_values('data', ascending=False)
                         df_show['Apagar'] = False
                         
-                        edit = st.data_editor(df_show, hide_index=True, use_container_width=True)
+                        # --- CONFIGURAÇÃO DA TABELA (DATA BRASILEIRA) ---
+                        edit = st.data_editor(
+                            df_show, 
+                            column_config={
+                                "data": st.column_config.DatetimeColumn(
+                                    "Data/Hora",
+                                    format="DD/MM/YYYY HH:mm" # Formato Brasileiro Explicito
+                                ),
+                                "Apagar": st.column_config.CheckboxColumn(default=False),
+                                "id": None
+                            },
+                            hide_index=True, 
+                            use_container_width=True
+                        )
+                        
                         if st.button("🗑️ Apagar Selecionados"):
                             for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
                             st.success("Apagado!"); st.rerun()
