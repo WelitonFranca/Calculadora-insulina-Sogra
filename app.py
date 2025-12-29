@@ -2,60 +2,70 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
+from google.oauth2 import service_account # Biblioteca oficial do Google
 from datetime import datetime, timedelta
-import time
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
-st.title("💉 Controle de Insulina (Modo Diagnóstico)")
+st.title("💉 Controle de Insulina")
 
-# --- 2. DIAGNÓSTICO DE HORA (CRUCIAL PARA JWT) ---
-st.markdown("### 🕵️‍♂️ Diagnóstico do Sistema")
-hora_servidor = datetime.utcnow()
-st.write(f"🕒 **Hora UTC do Servidor:** {hora_servidor.strftime('%H:%M:%S')}")
-st.info("Se a hora acima estiver muito errada (mais de 5 min de diferença do horário mundial), o Google bloqueia a conexão.")
+# --- 2. CONEXÃO ROBUSTA (MÉTODO GOOGLE AUTH) ---
+def conectar_banco():
+    if 'conexao_ok' in st.session_state:
+        return st.session_state.conexao_ok
 
-# --- 3. UPLOAD COM "VACINA" ---
-st.markdown("---")
-st.warning("📂 **Arraste seu arquivo JSON abaixo:**")
-arquivo_chave = st.file_uploader("Solte o arquivo aqui", type=["json"], key="loader_final")
-
-if arquivo_chave is None:
-    st.stop()
-
-try:
-    # 1. Lê o arquivo
-    credenciais = json.load(arquivo_chave)
+    st.markdown("---")
+    st.warning("📂 **Arraste seu arquivo JSON abaixo:**")
     
-    # 2. APLICANDO A VACINA (Limpeza forçada da chave)
-    # Isso conserta o erro de assinatura na maioria dos casos
-    if "private_key" in credenciais:
-        chave_original = credenciais["private_key"]
-        # Força a troca de quebras de linha escapadas por reais
-        credenciais["private_key"] = chave_original.replace("\\n", "\n")
+    arquivo = st.file_uploader("Solte o arquivo aqui", type=["json"], key="loader_google_auth")
     
-    # 3. Tenta conectar com a credencial "vacinada"
-    gc = gspread.service_account_from_dict(credenciais)
-    email_robo = credenciais.get("client_email")
-    
-    st.success(f"✅ CONEXÃO BEM SUCEDIDA! (Robô: {email_robo})")
-    
-except Exception as e:
-    st.error(f"❌ O erro persiste: {e}")
-    st.stop()
+    if arquivo is not None:
+        try:
+            # 1. Lê o arquivo JSON
+            info_conta = json.load(arquivo)
+            
+            # 2. Define as permissões (Escopos)
+            escopos = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+            
+            # 3. Autenticação via Biblioteca Oficial (Mais segura)
+            creds = service_account.Credentials.from_service_account_info(
+                info_conta, 
+                scopes=escopos
+            )
+            
+            # 4. Conecta no gspread usando as credenciais oficiais
+            gc = gspread.authorize(creds)
+            
+            # Salva na memória
+            email_robo = info_conta.get("client_email")
+            st.session_state.conexao_ok = (gc, email_robo)
+            
+            st.success(f"✅ CONEXÃO SEGURA REALIZADA! (Robô: {email_robo})")
+            st.rerun()
+            
+        except Exception as e:
+            st.error("❌ Falha na Autenticação:")
+            st.error(f"{e}")
+            st.stop()
+    else:
+        st.stop()
 
-# --- 4. PREPARAÇÃO DA PLANILHA ---
-def preparar_abas(gc, email_robo):
+# --- 3. PREPARAÇÃO DA PLANILHA ---
+def preparar_abas():
+    gc, email_robo = conectar_banco()
+    
     try:
         sh = gc.open("banco_dados_insulina")
-        return sh
     except gspread.exceptions.SpreadsheetNotFound:
-        st.error("❌ CONECTOU, MAS NÃO ACHOU A PLANILHA")
+        st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        O erro de JWT foi resolvido! Agora falta permissão.
+        **Atenção:** O robô conectou, mas não tem permissão na planilha.
         
         1. Vá na planilha **banco_dados_insulina**
-        2. Compartilhe com:
+        2. Compartilhe com este e-mail (como **EDITOR**):
         """)
         st.code(email_robo, language="text")
         st.stop()
@@ -63,16 +73,32 @@ def preparar_abas(gc, email_robo):
         st.error(f"Erro ao abrir planilha: {e}")
         st.stop()
 
-# Carrega a planilha
-sh = preparar_abas(gc, email_robo)
+    # Cria as abas se não existirem
+    try:
+        sh.worksheet("usuarios")
+    except:
+        ws = sh.add_worksheet("usuarios", 100, 5)
+        ws.append_row(["usuario", "senha", "criado_em"])
+            
+    try:
+        sh.worksheet("registros")
+    except:
+        ws = sh.add_worksheet("registros", 1000, 10)
+        ws.append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
+            
+    return sh
 
-# --- 5. APP FUNCIONANDO ---
+# --- 4. APP PRINCIPAL ---
+sh = preparar_abas()
+
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'usuario_atual' not in st.session_state: st.session_state.usuario_atual = ""
 
+# TELA DE LOGIN
 if not st.session_state.logado:
     st.markdown("---")
     tab1, tab2 = st.tabs(["Login", "Cadastro"])
+    
     with tab1:
         with st.form("login"):
             u = st.text_input("Usuário").lower().strip()
@@ -110,6 +136,7 @@ if not st.session_state.logado:
                     ws.append_row([nu, np, str(d)])
                     st.success("Criado! Faça login.")
 
+# ÁREA LOGADA
 else:
     st.markdown("---")
     c1, c2 = st.columns([3, 1])
