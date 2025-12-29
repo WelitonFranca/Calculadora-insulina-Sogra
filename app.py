@@ -32,13 +32,21 @@ def conectar_banco():
         st.error(f"❌ Erro na chave: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO ---
+# --- 3. PREPARAÇÃO (COM DIAGNÓSTICO DETALHADO) ---
 def preparar_abas():
     gc = conectar_banco()
+    
+    # Tenta abrir a planilha e mostra o erro EXATO se falhar
     try:
         sh = gc.open("banco_dados_insulina")
-    except:
-        st.error("❌ Planilha não encontrada.")
+    except Exception as e:
+        st.error(f"❌ ERRO CRÍTICO: {e}")
+        st.warning("""
+        Verifique no seu Google Drive:
+        1. O nome da planilha é EXATAMENTE: banco_dados_insulina (sem espaços extras?)
+        2. A planilha ainda existe? (Não foi para a lixeira?)
+        3. O email do robô ainda está compartilhado?
+        """)
         st.stop()
 
     try:
@@ -174,85 +182,20 @@ def main():
                 df = pd.DataFrame(dados)
                 
                 if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
-                    # Adiciona o número da linha original (para poder apagar depois)
-                    # +2 porque: índice começa em 0, header é linha 1, dados começam na 2
+                    # Adiciona identificador da linha para exclusão
                     df['linha_original'] = df.index + 2
                     
-                    # Filtra usuário
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # Tratamento de dados
                         df['data'] = pd.to_datetime(df['data'], errors='coerce')
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
                         df = df.dropna(subset=['data', 'glicemia'])
 
                         if not df.empty:
-                            # 1. GRÁFICO
                             st.caption("Evolução da Glicemia")
                             st.line_chart(df, x='data', y='glicemia')
                             
                             st.divider()
-                            
-                            # 2. TABELA DE EXCLUSÃO (NOVA FUNCIONALIDADE)
                             st.subheader("🗑️ Gerenciar Registros")
-                            st.caption("Marque a caixa 'Excluir' e clique no botão vermelho para apagar.")
-                            
-                            # Prepara tabela para edição
-                            df_display = df.sort_values(by='data', ascending=False).copy()
-                            df_display['Excluir'] = False # Cria coluna de checkbox
-                            
-                            # Colunas que serão mostradas
-                            colunas_visiveis = ['Excluir', 'data', 'glicemia', 'carbos', 'dose', 'linha_original']
-                            
-                            # Editor de dados
-                            df_editado = st.data_editor(
-                                df_display[colunas_visiveis],
-                                column_config={
-                                    "Excluir": st.column_config.CheckboxColumn(
-                                        "Apagar?",
-                                        help="Marque para excluir este registro",
-                                        default=False,
-                                    ),
-                                    "data": st.column_config.DatetimeColumn(
-                                        "Data/Hora",
-                                        format="DD/MM HH:mm",
-                                        disabled=True
-                                    ),
-                                    "glicemia": st.column_config.NumberColumn("Glicemia", disabled=True),
-                                    "carbos": st.column_config.NumberColumn("Carbos", disabled=True),
-                                    "dose": st.column_config.NumberColumn("Dose", disabled=True),
-                                    "linha_original": None # Esconde a coluna técnica
-                                },
-                                hide_index=True,
-                                use_container_width=True
-                            )
-                            
-                            # Botão de Apagar
-                            if st.button("🚨 Apagar Registros Marcados", type="primary"):
-                                # Filtra linhas marcadas
-                                linhas_para_apagar = df_editado[df_editado['Excluir'] == True]['linha_original'].tolist()
-                                
-                                if linhas_para_apagar:
-                                    # Apaga de baixo para cima para não bagunçar os índices
-                                    for linha in sorted(linhas_para_apagar, reverse=True):
-                                        ws.delete_rows(linha)
-                                    
-                                    st.success("Registros apagados com sucesso!")
-                                    st.rerun()
-                                else:
-                                    st.warning("Nenhum registro marcado para exclusão.")
-                                    
-                        else:
-                            st.info("Dados insuficientes.")
-                    else:
-                        st.info("Sem registros ainda.")
-                else:
-                    st.warning("Erro na estrutura da planilha.")
-            else:
-                st.info("Faça seu primeiro registro!")
-        except Exception as e:
-            st.error(f"Erro ao carregar dados: {e}")
-
-if __name__ == "__main__":
-    main()
+                            st.caption("Marque para excluir e*
