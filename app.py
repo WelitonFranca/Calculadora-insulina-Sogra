@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
@@ -100,7 +100,9 @@ def main():
                     if nu in existing:
                         st.error("Usuário já existe.")
                     else:
-                        ws.append_row([nu, np, str(datetime.now())])
+                        # Data Brasil no cadastro também
+                        data_br = datetime.now() - timedelta(hours=3)
+                        ws.append_row([nu, np, str(data_br)])
                         st.success("Criado! Faça login.")
 
     # --- ÁREA LOGADA ---
@@ -124,84 +126,4 @@ def main():
             c1, c2 = st.columns(2)
             glic = c1.number_input("Glicemia", min_value=0, max_value=900, value=None, placeholder="Digite...")
             carbos = c2.number_input("Carboidratos", min_value=0, max_value=500, value=0)
-            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None, placeholder="Digite...")
-            
-            if st.form_submit_button("Calcular e Salvar", use_container_width=True):
-                if glic is None or icr is None:
-                    st.warning("⚠️ Preencha Glicemia e ICR.")
-                else:
-                    dose_correcao = (glic - alvo) / fator_sens
-                    dose_refeicao = carbos / icr
-                    dose_total = max(0, dose_correcao + dose_refeicao)
-                    dose_final = round(dose_total)
-                    
-                    ws = sh.worksheet("registros")
-                    ws.append_row([
-                        st.session_state.usuario_atual, 
-                        datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                        glic, carbos, icr, dose_final
-                    ])
-                    
-                    st.divider()
-                    if glic > alvo + 40: st.warning(f"⚠️ Glicemia Alta ({glic}).")
-                    elif glic < 70: st.error(f"🚨 Hipoglicemia ({glic}).")
-                    else: st.success(f"✅ Glicemia Controlada ({glic}).")
-
-                    st.markdown(f"<h1 style='text-align: center; color: #0068c9;'>{dose_final} UI</h1>", unsafe_allow_html=True)
-                    
-                    st.info(f"""
-                    **🧠 Memória de Cálculo:**
-                    1. Correção: ({glic} - {alvo}) ÷ {fator_sens} = **{dose_correcao:.2f}**
-                    2. Refeição: {carbos} ÷ {icr} = **{dose_refeicao:.2f}**
-                    3. Total: **{dose_total:.2f} UI**
-                    """)
-                    st.button("Atualizar Histórico")
-
-        # --- HISTÓRICO BLINDADO ---
-        st.divider()
-        st.subheader("📋 Histórico")
-        
-        try:
-            ws = sh.worksheet("registros")
-            dados = ws.get_all_records()
-            
-            if len(dados) > 0:
-                df = pd.DataFrame(dados)
-                
-                # VERIFICAÇÃO DE COLUNAS
-                if 'usuario' in df.columns and 'data' in df.columns and 'glicemia' in df.columns:
-                    # Filtra usuário
-                    df = df[df['usuario'] == st.session_state.usuario_atual].copy()
-                    
-                    if not df.empty:
-                        # 1. Converte DATA (Força formato correto)
-                        df['data'] = pd.to_datetime(df['data'], errors='coerce')
-                        
-                        # 2. Converte GLICEMIA (Força virar número, se tiver texto vira erro)
-                        df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce')
-                        
-                        # 3. Remove linhas com erro (datas ou números inválidos)
-                        df = df.dropna(subset=['data', 'glicemia'])
-
-                        if not df.empty:
-                            st.caption("Evolução da Glicemia")
-                            st.line_chart(df, x='data', y='glicemia')
-                            
-                            st.caption("Últimos Registros")
-                            # Formata a data para ficar bonita na tabela
-                            df_show = df.sort_values(by='data', ascending=False).head(5)
-                            df_show['data'] = df_show['data'].dt.strftime('%d/%m %H:%M')
-                            st.dataframe(df_show, hide_index=True, use_container_width=True)
-                        else:
-                            st.info("Dados insuficientes para gerar gráfico.")
-                    else:
-                        st.info("Sem registros ainda.")
-                else:
-                    st.warning("Erro na estrutura da planilha. Colunas faltando.")
-            else:
-                st.info("Faça seu primeiro registro!")
-        except Exception as e:
-            st.error(f"Erro ao carregar dados: {e}")
-
-if __name__ == "__main__":
-    main()
+            icr = st.number_input("Fator ICR", min_value=1, max_value=100, value=None,*
