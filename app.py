@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v11")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v12")
     
     if arquivo:
         try:
@@ -161,21 +161,17 @@ def main():
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # 1. TRATAMENTO DE DADOS
+                        # TRATAMENTO DE DADOS
                         df['data_original'] = df['data'].astype(str)
-                        # Converte para data real para poder ordenar
                         df['data_obj'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
                         df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
                         df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
                         
-                        # Filtra e Ordena
                         df_grafico = df.dropna(subset=['data_obj']).sort_values('data_obj')
                         
-                        # --- A CORREÇÃO DO EIXO X ---
-                        # Criamos uma coluna de TEXTO formatado. O gráfico vai usar isso como rótulo.
-                        # Exemplo: "29/12 15:30"
+                        # EIXO X LEGÍVEL
                         df_grafico['Data_Legivel'] = df_grafico['data_obj'].dt.strftime('%d/%m %H:%M')
                         
                         # CONTROLES
@@ -190,17 +186,10 @@ def main():
                         # GRÁFICO
                         if opcoes and not df_grafico.empty:
                             cols = [mapa[o] for o in opcoes]
-                            
-                            # AQUI: Usamos 'Data_Legivel' no eixo X.
-                            # Como é texto, o Streamlit não vai tentar fazer conta (não vai aparecer .803)
-                            if tipo_grafico == "Linha": 
-                                st.line_chart(df_grafico, x='Data_Legivel', y=cols)
-                            elif tipo_grafico == "Barra": 
-                                st.bar_chart(df_grafico, x='Data_Legivel', y=cols)
-                            elif tipo_grafico == "Área": 
-                                st.area_chart(df_grafico, x='Data_Legivel', y=cols)
-                            elif tipo_grafico == "Dispersão (Pontos)": 
-                                st.scatter_chart(df_grafico, x='Data_Legivel', y=cols)
+                            if tipo_grafico == "Linha": st.line_chart(df_grafico, x='Data_Legivel', y=cols)
+                            elif tipo_grafico == "Barra": st.bar_chart(df_grafico, x='Data_Legivel', y=cols)
+                            elif tipo_grafico == "Área": st.area_chart(df_grafico, x='Data_Legivel', y=cols)
+                            elif tipo_grafico == "Dispersão (Pontos)": st.scatter_chart(df_grafico, x='Data_Legivel', y=cols)
                         elif df_grafico.empty:
                             st.info("Aguardando dados válidos...")
                         else:
@@ -212,5 +201,29 @@ def main():
                         df_show = df.sort_values('id', ascending=False)
                         df_show['Apagar'] = False
                         
+                        # CONFIGURAÇÃO DA TABELA (Simplificada para evitar erro)
+                        minha_config = {
+                            "data_original": st.column_config.TextColumn("Data/Hora"),
+                            "glicemia": st.column_config.NumberColumn("Glicemia", format="%d"),
+                            "carbos": st.column_config.NumberColumn("Carbos (g)", format="%d"),
+                            "dose": st.column_config.NumberColumn("Dose (UI)", format="%d"),
+                            "Apagar": st.column_config.CheckboxColumn(default=False),
+                            "id": None
+                        }
+
                         edit = st.data_editor(
-                            df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']],
+                            df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
+                            column_config=minha_config,
+                            hide_index=True, 
+                            use_container_width=True
+                        )
+                        
+                        if st.button("🗑️ Apagar Selecionados"):
+                            for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
+                            st.success("Apagado!"); time.sleep(1); st.rerun()
+            else: st.info("Sem dados.")
+        except Exception as e: 
+            st.error(f"Erro ao ler histórico: {e}")
+
+if __name__ == "__main__":
+    main()
