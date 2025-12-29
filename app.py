@@ -13,8 +13,7 @@ def carregar_credenciais():
     # 3. Cole ABAIXO, substituindo o texto entre as aspas triplas.
     
     # O 'r' antes das aspas é OBRIGATÓRIO (significa Raw String)
-    json_texto = r"""
-    {
+    json_texto = r"""{
   "type": "service_account",
   "project_id": "insulina-app-v2",
   "private_key_id": "305b1aadccf01a38484936d7f561cc14ad509aa8",
