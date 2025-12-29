@@ -15,7 +15,7 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v6")
+    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v7")
     
     if arquivo:
         try:
@@ -125,7 +125,7 @@ def main():
                         "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
                     }
                     
-                    st.toast("💾 Salvando e atualizando gráfico...")
+                    st.toast("💾 Salvando e atualizando...")
                     time.sleep(2)
                     st.rerun()
                 else:
@@ -147,7 +147,7 @@ def main():
                 st.session_state.ultimo_resultado = None
                 st.rerun()
 
-        # --- HISTÓRICO E GRÁFICO INTELIGENTE ---
+        # --- HISTÓRICO E GRÁFICOS AVANÇADOS ---
         st.divider()
         st.subheader("📊 Análise e Histórico")
         
@@ -161,43 +161,53 @@ def main():
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # 1. TRATAMENTO DE DADOS (CRUCIAL PARA O GRÁFICO)
+                        # 1. TRATAMENTO DE DADOS
                         df['data_original'] = df['data'].astype(str)
                         df['data_grafico'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
-                        # Converte colunas numéricas (força virar número, se der erro vira 0)
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
                         df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
                         df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
                         
-                        # Filtra apenas datas válidas para o gráfico
                         df_grafico = df.dropna(subset=['data_grafico']).sort_values('data_grafico')
                         
-                        # --- SELETOR DE DADOS DO GRÁFICO ---
-                        st.write("O que você deseja visualizar?")
-                        opcoes = st.multiselect(
-                            "Selecione as linhas do gráfico:",
-                            options=["Glicemia", "Carboidratos", "Dose Insulina"],
-                            default=["Glicemia"] # Padrão mostra só Glicemia
-                        )
+                        # --- CONTROLES DO GRÁFICO ---
+                        col_tipo, col_dados = st.columns([1, 2])
                         
-                        # Mapeia os nomes bonitos para os nomes das colunas
-                        mapa_colunas = {
-                            "Glicemia": "glicemia",
-                            "Carboidratos": "carbos",
-                            "Dose Insulina": "dose"
-                        }
+                        with col_tipo:
+                            tipo_grafico = st.selectbox(
+                                "Tipo de Gráfico:",
+                                ["Linha", "Barra", "Área", "Dispersão (Pontos)"]
+                            )
                         
-                        # Desenha o gráfico se houver algo selecionado
+                        with col_dados:
+                            opcoes = st.multiselect(
+                                "Dados para visualizar:",
+                                ["Glicemia", "Carboidratos", "Dose Insulina"],
+                                default=["Glicemia"]
+                            )
+                        
+                        mapa_colunas = {"Glicemia": "glicemia", "Carboidratos": "carbos", "Dose Insulina": "dose"}
+                        
+                        # --- DESENHO DO GRÁFICO ---
                         if opcoes and not df_grafico.empty:
-                            colunas_para_plotar = [mapa_colunas[o] for o in opcoes]
-                            st.line_chart(df_grafico, x='data_grafico', y=colunas_para_plotar)
+                            colunas_plot = [mapa_colunas[o] for o in opcoes]
+                            
+                            if tipo_grafico == "Linha":
+                                st.line_chart(df_grafico, x='data_grafico', y=colunas_plot)
+                            elif tipo_grafico == "Barra":
+                                st.bar_chart(df_grafico, x='data_grafico', y=colunas_plot)
+                            elif tipo_grafico == "Área":
+                                st.area_chart(df_grafico, x='data_grafico', y=colunas_plot)
+                            elif tipo_grafico == "Dispersão (Pontos)":
+                                st.scatter_chart(df_grafico, x='data_grafico', y=colunas_plot)
+                                
                         elif df_grafico.empty:
-                            st.info("Aguardando datas válidas para gerar gráfico.")
+                            st.info("Aguardando dados válidos...")
                         else:
-                            st.info("Selecione pelo menos uma opção acima.")
+                            st.info("Selecione pelo menos um dado.")
 
-                        # --- TABELA DE DADOS ---
+                        # --- TABELA ---
                         st.markdown("### 📋 Tabela Detalhada")
                         df['id'] = df.index + 2
                         df_show = df.sort_values('id', ascending=False)
@@ -220,7 +230,7 @@ def main():
                         if st.button("🗑️ Apagar Selecionados"):
                             for L in sorted(edit[edit['Apagar']]['id'].tolist(), reverse=True): ws.delete_rows(L)
                             st.success("Apagado!"); time.sleep(1); st.rerun()
-            else: st.info("Sem dados para exibir.")
+            else: st.info("Sem dados.")
         except Exception as e: 
             st.error(f"Erro ao ler histórico: {e}")
 
