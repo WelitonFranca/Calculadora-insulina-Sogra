@@ -1,52 +1,41 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import json
 from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CREDENCIAIS (JÁ INSERIDAS) ---
-def carregar_credenciais():
-    # Sua chave já está aqui dentro. Não precisa mexer.
-    json_texto = r"""{
-  "type": "service_account",
-  "project_id": "insulina-app-v2",
-  "private_key_id": "305b1aadccf01a38484936d7f561cc14ad509aa8",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDReGYniVdLvFTr\noIbqejXl2IpU/QJg8HFciqX4kuITEIeyEDL7cRYgUGPWnDAqVIG5jjK85JCkfELy\nzL6sLnAEjozQYQ7oY6/tPO3ltJipaYLvmj3ZTxwOWZgLsy2LUTJ+71sXLgDRK80d\nXaP1J02shLt2x4GdK8dEcjE3AtSSqcO0VMkYQIbeAa+uRWZXQF9LhJngYDQDVrad\nFFdIYszuDSttnf1DUcxTOGn7UPiRmUWhUqeUnI5awMLfoQcAfkOduOsyUm/YHt8y\ntYimMaCM2ihanFSTllE05tvAEaHCy7k6Vqp865NM2w72y+MJzFKb+4/Ar3DKPEVz\n+XhLXt7/AgMBAAECggEAXC6Y/iMxuJGr6Xnehce8emb+EYK6jkCiErCtc6PoO62V\nmeYJGaBdtWDLXwGjLK293RPX/kqz4L8Sk1lJO+q/vzGghH+CGQDtxgB/TQxZ9owJ\nZDpDp6Np3GLPR67Vhy73gucA9kV3dJXLEXZJFjTyuM481Xvc7Xb7nYKHaAcl11h0\nZyllLvm/roql2ke+Agn0kGJefMl+cs2ViqMzIdlKWQfrjNQVqiy5Y823gcjnVX1U\n/QSIVU+VF/c6MkiRMj7AiykZtj7GUutRrV0s9tjieARb2HIAH+jdJdlCD2Ysx4ek\neis1GwS/6gCetakI1knVr775QVbtbLplODYL/FUWUQKBgQDv2KUH2328dDi38TdA\nZITzm4ZvoACAuWy7UZBsEd3WVN3VxgoTVuBs+9iuadpQ7NVRqVVs4hfm/bcIkrrq\nI3KF3euW8whaWuxv9c8Se+YJptVeAq0i4fQgszqaZRNWazNELANYGwdejLLsvE93\nAj+k3dKSv6IGkBCe3MO1WBaA9wKBgQDflAV/EgpD6uw2OlslrMmeB9LuEa9WA7GU\nL7wknYG9TJ/1z6F0XT0juUTqLo1As8TvHDw0A9EHw3eULB74QmwIXSC/znxTzZVh\ntpqVn1kGeVASNRZpyKHMZNJKdOaqBNanMNJGwuj/9PT0rpJptb1x7fGpoG7KHtVP\n2Lbh86MYOQKBgEIJKAbty8SjSyp543h7NI/N9kmth/XpF6LLZjQbBzUH0LwW9pc0\niD35aUM8Kbu2OVVuhfKgnWwf1tEpdQUaFWH+I+s/psEZ35dD2muAaWmm4YAsxHai\nN5D5R91SjuxwP4E5jQIpDvJdUrYTct2VZOiDmoKE+JtN9wWGSuwXALspAoGBAI+9\nRINbf8oGgPKkNfFU0xKMiSmRqR4tpb9VqSoJMV4Yo0aPxIdhYmtTM2EzqJCOgvAP\nQQ1X3s2U944Fh6uoWHhQFzv5bqkaJQ37Lgs/tSaaW8Y45z3/RTZ5I1HHMnzgO3il\nxKrFqLLWM54TlgHsW+2hQpsBj/jWNeHtvDYsQxDRAoGABe2oAm62jBBg1yvOs/QP\n1HTzHX1oew9ESOUgq+pYz3pLE2yX9TQCGHCNkbh1Bp+WATyMfzZjVLGc+HW9ldJK\niXrIBNShhwHFm11Y3XfKaHgD9+B2KcxrfJnypLdPJdVxWMhCgD3PvH3IyRRYtlRd\nTmJ9tV5SF0HC2FKdEwJ/cro=\n-----END PRIVATE KEY-----\n",
-  "client_email": "robo-insulina@insulina-app-v2.iam.gserviceaccount.com",
-  "client_id": "108745775536733403179",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
-}"""
-    
-    try:
-        credenciais = json.loads(json_texto.strip())
-        if "private_key" in credenciais:
-            credenciais["private_key"] = credenciais["private_key"].replace("\\n", "\n")
-        return credenciais
-    except Exception as e:
-        st.error(f"❌ Erro no JSON: {e}")
-        st.stop()
-
-# --- 3. CONEXÃO ---
-@st.cache_resource(ttl=600)
+# --- 2. CREDENCIAIS (HARDCODED - FORMATO PYTHON NATIVO) ---
 def conectar_banco():
-    # REMOVI A TRAVA DE SEGURANÇA QUE ESTAVA DANDO ERRO
-    credenciais = carregar_credenciais()
+    # AQUI ESTÁ A MÁGICA:
+    # Eu converti seu JSON para um Dicionário Python real.
+    # A chave privada está sendo tratada diretamente aqui.
     
+    credenciais = {
+        "type": "service_account",
+        "project_id": "insulina-app-v2",
+        "private_key_id": "305b1aadccf01a38484936d7f561cc14ad509aa8",
+        # O comando .replace abaixo garante que as quebras de linha funcionem
+        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDReGYniVdLvFTr\noIbqejXl2IpU/QJg8HFciqX4kuITEIeyEDL7cRYgUGPWnDAqVIG5jjK85JCkfELy\nzL6sLnAEjozQYQ7oY6/tPO3ltJipaYLvmj3ZTxwOWZgLsy2LUTJ+71sXLgDRK80d\nXaP1J02shLt2x4GdK8dEcjE3AtSSqcO0VMkYQIbeAa+uRWZXQF9LhJngYDQDVrad\nFFdIYszuDSttnf1DUcxTOGn7UPiRmUWhUqeUnI5awMLfoQcAfkOduOsyUm/YHt8y\ntYimMaCM2ihanFSTllE05tvAEaHCy7k6Vqp865NM2w72y+MJzFKb+4/Ar3DKPEVz\n+XhLXt7/AgMBAAECggEAXC6Y/iMxuJGr6Xnehce8emb+EYK6jkCiErCtc6PoO62V\nmeYJGaBdtWDLXwGjLK293RPX/kqz4L8Sk1lJO+q/vzGghH+CGQDtxgB/TQxZ9owJ\nZDpDp6Np3GLPR67Vhy73gucA9kV3dJXLEXZJFjTyuM481Xvc7Xb7nYKHaAcl11h0\nZyllLvm/roql2ke+Agn0kGJefMl+cs2ViqMzIdlKWQfrjNQVqiy5Y823gcjnVX1U\n/QSIVU+VF/c6MkiRMj7AiykZtj7GUutRrV0s9tjieARb2HIAH+jdJdlCD2Ysx4ek\neis1GwS/6gCetakI1knVr775QVbtbLplODYL/FUWUQKBgQDv2KUH2328dDi38TdA\nZITzm4ZvoACAuWy7UZBsEd3WVN3VxgoTVuBs+9iuadpQ7NVRqVVs4hfm/bcIkrrq\nI3KF3euW8whaWuxv9c8Se+YJptVeAq0i4fQgszqaZRNWazNELANYGwdejLLsvE93\nAj+k3dKSv6IGkBCe3MO1WBaA9wKBgQDflAV/EgpD6uw2OlslrMmeB9LuEa9WA7GU\nL7wknYG9TJ/1z6F0XT0juUTqLo1As8TvHDw0A9EHw3eULB74QmwIXSC/znxTzZVh\ntpqVn1kGeVASNRZpyKHMZNJKdOaqBNanMNJGwuj/9PT0rpJptb1x7fGpoG7KHtVP\n2Lbh86MYOQKBgEIJKAbty8SjSyp543h7NI/N9kmth/XpF6LLZjQbBzUH0LwW9pc0\niD35aUM8Kbu2OVVuhfKgnWwf1tEpdQUaFWH+I+s/psEZ35dD2muAaWmm4YAsxHai\nN5D5R91SjuxwP4E5jQIpDvJdUrYTct2VZOiDmoKE+JtN9wWGSuwXALspAoGBAI+9\nRINbf8oGgPKkNfFU0xKMiSmRqR4tpb9VqSoJMV4Yo0aPxIdhYmtTM2EzqJCOgvAP\nQQ1X3s2U944Fh6uoWHhQFzv5bqkaJQ37Lgs/tSaaW8Y45z3/RTZ5I1HHMnzgO3il\nxKrFqLLWM54TlgHsW+2hQpsBj/jWNeHtvDYsQxDRAoGABe2oAm62jBBg1yvOs/QP\n1HTzHX1oew9ESOUgq+pYz3pLE2yX9TQCGHCNkbh1Bp+WATyMfzZjVLGc+HW9ldJK\niXrIBNShhwHFm11Y3XfKaHgD9+B2KcxrfJnypLdPJdVxWMhCgD3PvH3IyRRYtlRd\nTmJ9tV5SF0HC2FKdEwJ/cro=\n-----END PRIVATE KEY-----\n".replace("\\n", "\n"),
+        "client_email": "robo-insulina@insulina-app-v2.iam.gserviceaccount.com",
+        "client_id": "108745775536733403179",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+    }
+
     try:
+        # Conecta usando o dicionário direto
         gc = gspread.service_account_from_dict(credenciais)
         return gc, credenciais.get("client_email")
     except Exception as e:
         st.error(f"❌ Erro de Conexão: {e}")
         st.stop()
 
-# --- 4. PREPARAÇÃO ---
+# --- 3. PREPARAÇÃO ---
 def preparar_abas():
     gc, email_robo = conectar_banco()
     
@@ -55,9 +44,11 @@ def preparar_abas():
     except gspread.exceptions.SpreadsheetNotFound:
         st.error("❌ PLANILHA NÃO ENCONTRADA")
         st.markdown(f"""
-        **Conectado!**
+        **CONEXÃO BEM SUCEDIDA!** (O erro JWT sumiu! 🎉)
         
-        Vá na planilha **banco_dados_insulina** e compartilhe com:
+        Agora, o último passo:
+        1. Vá na planilha **banco_dados_insulina**
+        2. Compartilhe com este e-mail (Editor):
         """)
         st.code(email_robo, language="text")
         st.stop()
@@ -79,7 +70,7 @@ def preparar_abas():
             
     return sh
 
-# --- 5. APP PRINCIPAL ---
+# --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
     
