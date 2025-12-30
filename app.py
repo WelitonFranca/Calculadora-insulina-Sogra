@@ -30,7 +30,7 @@ CHAVE_MESTRA = r"""
 """
 
 # 2. COLE O LINK DA NOVA PLANILHA AQUI
-LINK_DA_PLANILHA = "robo-insulina@insulina-app-v2.iam.gserviceaccount.com"
+LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1adXq5KqRLctxdXKPFT26SQw2TL_riegPVz6KMj6e2QA/edit?gid=0#gid=0"
 
 # 
 
