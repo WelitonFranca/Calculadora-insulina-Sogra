@@ -29,7 +29,7 @@ CHAVE_MESTRA = r"""
 
 # 2. COLE O LINK DA SUA PLANILHA AQUI (Mantenha as aspas)
 # Exemplo: "https://docs.google.com/spreadsheets/d/1BxiM..."
-LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1xv4K6iR2b9ktLey5fB-sb2N9lQ1s4ZZuh1kLr097avY/edit?pli=1&gid=585183877#gid=585183877"
+LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1adXq5KqRLctxdXKPFT26SQw2TL_riegPVz6KMj6e2QA/edit?gid=0#gid=0"
 
 # ======================================================
 
