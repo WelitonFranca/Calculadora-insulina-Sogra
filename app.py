@@ -3,13 +3,14 @@ import pandas as pd
 import gspread
 import json
 import time
-import re
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
-# 
-# 👇 ÁREA DE CONFIGURAÇÃO DA CHAVE
-# 
+# ======================================================
+# 👇 ÁREA DE CONFIGURAÇÃO (PREENCHA AQUI)
+# ======================================================
+
+# 1. COLE SUA CHAVE JSON AQUI (Mantenha as aspas)
 CHAVE_MESTRA = r"""
 {
   "type": "service_account",
@@ -25,7 +26,12 @@ CHAVE_MESTRA = r"""
   "universe_domain": "googleapis.com"
 }
 """
-# 
+
+# 2. COLE O LINK DA SUA PLANILHA AQUI (Mantenha as aspas)
+# Exemplo: "https://docs.google.com/spreadsheets/d/1BxiM..."
+LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1xv4K6iR2b9ktLey5fB-sb2N9lQ1s4ZZuh1kLr097avY/edit?pli=1&gid=585183877#gid=585183877"
+
+# ======================================================
 
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
@@ -37,11 +43,11 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     try:
-        if "COLE_O_CONTEUDO" in CHAVE_MESTRA:
-            st.error("⚠️ VOCÊ PRECISA COLAR A CHAVE NO CÓDIGO!")
+        if "COLE_SEU_JSON" in CHAVE_MESTRA:
+            st.error("⚠️ ERRO: Você precisa colar a CHAVE JSON no código!")
             st.stop()
 
-        # Tenta limpar e ler o JSON
+        # Limpeza e Leitura do JSON
         try:
             info_conta = json.loads(CHAVE_MESTRA, strict=False)
         except:
@@ -57,30 +63,42 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     except Exception as e:
-        st.error(f"❌ Erro na Chave: {e}")
+        st.error(f"❌ Erro na Chave JSON: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO DA PLANILHA (COM AJUDA DE ERRO) ---
+# --- 3. PREPARAÇÃO DA PLANILHA (VIA LINK) ---
 def preparar_planilha(gc, email):
+    # Verifica se o usuário colou o link
+    if "COLE_O_LINK" in LINK_DA_PLANILHA or len(LINK_DA_PLANILHA) < 10:
+        st.error("⚠️ ERRO: Você precisa colar o LINK da planilha no código!")
+        st.info("Vá até a variável 'LINK_DA_PLANILHA' e cole o endereço https://... da sua planilha.")
+        st.stop()
+
     try: 
-        sh = gc.open("banco_dados_insulina")
-        # Verifica se as abas existem
+        # Tenta abrir pelo LINK (Muito mais seguro que pelo nome)
+        sh = gc.open_by_url(LINK_DA_PLANILHA)
+        
+        # Verifica abas
         try: sh.worksheet("usuarios")
         except: sh.add_worksheet("usuarios", 100, 5).append_row(["usuario", "senha", "criado_em"])
         try: sh.worksheet("registros")
         except: sh.add_worksheet("registros", 1000, 10).append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
         return sh
-    except: 
-        st.error("❌ PLANILHA NÃO ENCONTRADA OU SEM PERMISSÃO")
+    except Exception as e: 
+        st.error("❌ ACESSO NEGADO À PLANILHA")
+        st.error(f"Detalhe do erro: {e}")
         st.warning(f"""
-        O sistema conectou, mas não conseguiu abrir a planilha.
+        **DIAGNÓSTICO FINAL:**
+        O robô tentou acessar o link que você forneceu, mas foi bloqueado.
         
-        **SOLUÇÃO:**
-        1. Vá no Google Drive e abra a planilha **banco_dados_insulina**.
-        2. Clique em **Compartilhar**.
-        3. Adicione este email abaixo como **Editor**:
+        **O QUE FAZER:**
+        1. Copie EXATAMENTE este email abaixo:
         
         👉 **{email}**
+        
+        2. Vá na planilha desse link.
+        3. Clique em **Compartilhar**.
+        4. Verifique se esse email está lá. Se estiver, REMOVA e ADICIONE DE NOVO como **Editor**.
         """)
         st.stop()
 
