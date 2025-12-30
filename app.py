@@ -9,13 +9,32 @@ from datetime import datetime, timedelta, timezone
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO BLINDADA ---
+# --- 2. CONEXÃO BLINDADA (AUTOMÁTICA OU UPLOAD) ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
-    st.markdown("### 🔐 Conexão Segura")
-    arquivo = st.file_uploader("Se necessário, arraste o arquivo JSON aqui", type="json", key="reupload_final_v13")
+    # TENTATIVA 1: BUSCAR NO COFRE (SECRETS)
+    # Se você configurou no painel do Streamlit, ele conecta direto aqui.
+    if "gcp_service_account" in st.secrets:
+        try:
+            # O Streamlit já converte o TOML do secrets para dicionário
+            info_conta = st.secrets["gcp_service_account"]
+            
+            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+            creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
+            gc = gspread.authorize(creds)
+            email = info_conta.get("client_email")
+            
+            st.session_state.conexao_google = (gc, email)
+            return st.session_state.conexao_google
+        except Exception as e:
+            st.error(f"Erro na configuração dos Secrets: {e}")
+
+    # TENTATIVA 2: UPLOAD DE ARQUIVO (BACKUP)
+    st.markdown("### 🔐 Conexão")
+    st.info("Configuração automática não encontrada. Para não pedir mais o arquivo, configure os 'Secrets' no painel do App.")
+    arquivo = st.file_uploader("Arraste o arquivo JSON aqui", type="json", key="reupload_final_v14")
     
     if arquivo:
         try:
@@ -32,9 +51,8 @@ def conectar_seguro():
             st.error(f"❌ Erro: {e}")
             st.stop()
     else:
-        if 'conexao_google' not in st.session_state:
-            st.info("Aguardando arquivo de chave...")
-            st.stop()
+        st.stop()
+    
     return st.session_state.conexao_google
 
 # --- 3. PREPARAÇÃO ---
@@ -122,7 +140,7 @@ def main():
                         "carbos": carbos, "icr": icr,
                         "correcao": correcao, "bolus": bolus_alim,
                         "total": total, "dose": dose,
-                        "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
+                        "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic &lt; 70 else "Glicemia OK"
                     }
                     
                     st.toast("💾 Salvando e atualizando...")
@@ -161,23 +179,16 @@ def main():
                     df = df[df['usuario'] == st.session_state.usuario_atual].copy()
                     
                     if not df.empty:
-                        # 1. TRATAMENTO DE DADOS
                         df['data_original'] = df['data'].astype(str)
-                        # Converte para objeto de data (para ordenar corretamente)
                         df['data_obj'] = pd.to_datetime(df['data_original'], dayfirst=True, errors='coerce')
                         
                         df['glicemia'] = pd.to_numeric(df['glicemia'], errors='coerce').fillna(0)
                         df['carbos'] = pd.to_numeric(df['carbos'], errors='coerce').fillna(0)
                         df['dose'] = pd.to_numeric(df['dose'], errors='coerce').fillna(0)
                         
-                        # Filtra datas inválidas e ordena
                         df_grafico = df.dropna(subset=['data_obj']).sort_values('data_obj')
-                        
-                        # 2. CRIAÇÃO DO EIXO X (DATA E HORA)
-                        # Criamos uma coluna de TEXTO formatado: "29/12 15:30"
                         df_grafico['Data_X'] = df_grafico['data_obj'].dt.strftime('%d/%m %H:%M')
                         
-                        # 3. CONTROLES
                         col_tipo, col_dados = st.columns([1, 2])
                         with col_tipo:
                             tipo_grafico = st.selectbox("Tipo de Gráfico:", ["Linha", "Barra", "Área", "Dispersão (Pontos)"])
@@ -186,31 +197,22 @@ def main():
                         
                         mapa = {"Glicemia": "glicemia", "Carboidratos": "carbos", "Dose Insulina": "dose"}
                         
-                        # 4. GRÁFICO
                         if opcoes and not df_grafico.empty:
                             cols = [mapa[o] for o in opcoes]
-                            
-                            # Usamos 'Data_X' explicitamente no eixo X
-                            if tipo_grafico == "Linha": 
-                                st.line_chart(df_grafico, x='Data_X', y=cols)
-                            elif tipo_grafico == "Barra": 
-                                st.bar_chart(df_grafico, x='Data_X', y=cols)
-                            elif tipo_grafico == "Área": 
-                                st.area_chart(df_grafico, x='Data_X', y=cols)
-                            elif tipo_grafico == "Dispersão (Pontos)": 
-                                st.scatter_chart(df_grafico, x='Data_X', y=cols)
+                            if tipo_grafico == "Linha": st.line_chart(df_grafico, x='Data_X', y=cols)
+                            elif tipo_grafico == "Barra": st.bar_chart(df_grafico, x='Data_X', y=cols)
+                            elif tipo_grafico == "Área": st.area_chart(df_grafico, x='Data_X', y=cols)
+                            elif tipo_grafico == "Dispersão (Pontos)": st.scatter_chart(df_grafico, x='Data_X', y=cols)
                         elif df_grafico.empty:
                             st.info("Aguardando dados válidos...")
                         else:
                             st.info("Selecione um dado.")
 
-                        # 5. TABELA
                         st.markdown("### 📋 Tabela Detalhada")
                         df['id'] = df.index + 2
                         df_show = df.sort_values('id', ascending=False)
                         df_show['Apagar'] = False
                         
-                        # Configuração separada para evitar erro de sintaxe
                         config_tabela = {
                             "data_original": st.column_config.TextColumn("Data/Hora"),
                             "glicemia": st.column_config.NumberColumn("Glicemia", format="%d"),
@@ -223,8 +225,7 @@ def main():
                         edit = st.data_editor(
                             df_show[['Apagar', 'data_original', 'glicemia', 'carbos', 'dose', 'id']], 
                             column_config=config_tabela,
-                            hide_index=True, 
-                            use_container_width=True
+                            hide_index=True, use_container_width=True
                         )
                         
                         if st.button("🗑️ Apagar Selecionados"):
