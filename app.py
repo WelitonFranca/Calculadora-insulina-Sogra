@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 import json
 import time
+import re # Importando ferramenta de limpeza de texto
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
@@ -12,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 # INSTRUÇÃO:
 # 1. Mantenha as três aspas (""") do começo e do fim.
 # 2. Cole o conteúdo do JSON no meio.
-# 3. O texto DEVE começar com { e terminar com }.
 
 CHAVE_MESTRA = """
 {
@@ -36,28 +36,26 @@ CHAVE_MESTRA = """
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO AUTOMÁTICA (COM LIMPEZA DE TEXTO) ---
+# --- 2. CONEXÃO AUTOMÁTICA (COM CORREÇÃO DE ERROS) ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
     # Tenta ler a chave que você colou acima
     try:
-        # Verifica se o usuário esqueceu de colar
         if "COLE_O_CONTEUDO" in CHAVE_MESTRA:
             st.error("⚠️ VOCÊ PRECISA COLAR A CHAVE NO CÓDIGO!")
-            st.info("Abra o arquivo 'app.py', vá até o topo e substitua o texto 'COLE_O_CONTEUDO...' pelo texto do seu arquivo JSON.")
+            st.info("Abra o arquivo 'app.py' e cole o conteúdo do JSON na variável CHAVE_MESTRA.")
             st.stop()
 
-        # --- TENTATIVA DE LIMPEZA DO TEXTO ---
-        # Às vezes o copy-paste traz caracteres invisíveis ou espaços extras.
-        chave_limpa = CHAVE_MESTRA.strip() # Remove espaços do começo e fim
-        
-        # Se por acaso o usuário colou aspas extras no começo/fim, removemos
-        if chave_limpa.startswith("'") and chave_limpa.endswith("'"):
-            chave_limpa = chave_limpa[1:-1]
-        
-        info_conta = json.loads(chave_limpa)
+        # --- TENTATIVA 1: Modo Relaxado (Aceita quebras de linha do celular) ---
+        try:
+            info_conta = json.loads(CHAVE_MESTRA, strict=False)
+        except:
+            # --- TENTATIVA 2: Limpeza Pesada (Remove Enters proibidos) ---
+            # Se falhou, tentamos remover as quebras de linha que o celular criou
+            texto_limpo = CHAVE_MESTRA.replace('\n', ' ').replace('\r', '')
+            info_conta = json.loads(texto_limpo, strict=False)
         
         escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
@@ -68,12 +66,8 @@ def conectar_seguro():
         return st.session_state.conexao_google
 
     except json.JSONDecodeError as e:
-        st.error("❌ Erro de Formatação no JSON colado.")
-        st.markdown(f"**O computador disse:** `{e}`")
-        st.warning("""
-        **Dica:** O texto que você colou deve começar com **{** e terminar com **}**.
-        Verifique se você não apagou uma dessas chaves sem querer.
-        """)
+        st.error("❌ O texto colado ainda está com problemas.")
+        st.warning("Tente copiar o arquivo JSON novamente. Certifique-se de pegar desde a primeira chave '{' até a última '}'.")
         st.stop()
     except Exception as e:
         st.error(f"❌ Erro de conexão: {e}")
