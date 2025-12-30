@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 import json
 import time
+import re
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
@@ -25,10 +26,11 @@ CHAVE_MESTRA = r"""
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
 }
+
 """
 
 # 2. COLE O LINK DA NOVA PLANILHA AQUI
-LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1adXq5KqRLctxdXKPFT26SQw2TL_riegPVz6KMj6e2QA/edit?gid=0#gid=0"
+LINK_DA_PLANILHA = "robo-insulina@insulina-app-v2.iam.gserviceaccount.com"
 
 # 
 
@@ -36,73 +38,58 @@ LINK_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1adXq5KqRLctxdXKPFT26
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO INTELIGENTE (Tenta consertar a chave ou pede arquivo) ---
+# --- 2. CONEXÃO INTELIGENTE ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
-    # --- TENTATIVA 1: USAR A CHAVE COLADA ---
-    if "COLE_SEU_JSON" not in CHAVE_MESTRA:
-        try:
-            # Tenta ler o JSON (mesmo com erros de formatação do celular)
-            try:
-                info_conta = json.loads(CHAVE_MESTRA, strict=False)
-            except:
-                # Limpeza agressiva para celular
-                texto_limpo = CHAVE_MESTRA.replace('\n', ' ').replace('\r', '')
-                info_conta = json.loads(texto_limpo, strict=False)
-
-            # --- O PULO DO GATO: CORREÇÃO DO ERRO JWT ---
-            # O erro Invalid JWT acontece porque o \n vira texto. Aqui forçamos virar quebra de linha real.
-            if "private_key" in info_conta:
-                pk = info_conta["private_key"]
-                if "\\n" in pk:
-                    info_conta["private_key"] = pk.replace("\\n", "\n")
-            
-            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
-            gc = gspread.authorize(creds)
-            email = info_conta.get("client_email")
-            
-            st.session_state.conexao_google = (gc, email)
-            return st.session_state.conexao_google
-
-        except Exception as e:
-            st.warning(f"⚠️ A chave colada está corrompida ({e}). Ativando modo de backup...")
-            # Se falhar, cai para o código abaixo (Tentativa 2)
-
-    # --- TENTATIVA 2: UPLOAD DE ARQUIVO (BACKUP DE EMERGÊNCIA) ---
-    st.markdown("### 🔐 Conexão de Emergência")
-    st.info("A chave colada no código quebrou (erro comum no celular). Por favor, anexe o arquivo original para destravar.")
-    arquivo = st.file_uploader("Anexe seu arquivo JSON aqui", type="json", key="reupload_v22")
-    
-    if arquivo:
-        try:
-            info_conta = json.load(arquivo)
-            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
-            gc = gspread.authorize(creds)
-            email = info_conta.get("client_email")
-            st.session_state.conexao_google = (gc, email)
-            st.success("✅ Conectado via Arquivo!")
-            time.sleep(1)
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Erro no arquivo: {e}")
-            st.stop()
-    else:
+    if "COLE_SEU_JSON" in CHAVE_MESTRA:
+        st.error("⚠️ ERRO: Cole a CHAVE JSON no código!")
         st.stop()
-    
-    return st.session_state.conexao_google
 
-# --- 3. PREPARAÇÃO DA PLANILHA ---
+    try:
+        # Tenta ler o JSON (mesmo com erros de formatação do celular)
+        try:
+            info_conta = json.loads(CHAVE_MESTRA, strict=False)
+        except:
+            texto_limpo = CHAVE_MESTRA.replace('\n', ' ').replace('\r', '')
+            info_conta = json.loads(texto_limpo, strict=False)
+
+        # Correção do erro JWT
+        if "private_key" in info_conta:
+            pk = info_conta["private_key"]
+            if "\\n" in pk:
+                info_conta["private_key"] = pk.replace("\\n", "\n")
+        
+        escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
+        gc = gspread.authorize(creds)
+        email = info_conta.get("client_email")
+        
+        st.session_state.conexao_google = (gc, email)
+        return st.session_state.conexao_google
+
+    except Exception as e:
+        st.error(f"❌ Erro na Chave JSON: {e}")
+        st.stop()
+
+# --- 3. PREPARAÇÃO DA PLANILHA (EXTRAÇÃO DE ID) ---
 def preparar_planilha(gc, email):
     if "COLE_O_LINK" in LINK_DA_PLANILHA or len(LINK_DA_PLANILHA) < 10:
-        st.error("⚠️ ERRO: Cole o LINK da planilha na variável LINK_DA_PLANILHA!")
+        st.error("⚠️ ERRO: Cole o LINK da planilha!")
+        st.stop()
+
+    # Extrai o ID da planilha do link (para evitar erros de URL)
+    # Pega o código entre /d/ e /edit
+    try:
+        id_planilha = LINK_DA_PLANILHA.split("/d/")[1].split("/")[0]
+    except:
+        st.error("❌ Link inválido. Certifique-se de copiar o link completo do navegador.")
         st.stop()
 
     try: 
-        sh = gc.open_by_url(LINK_DA_PLANILHA)
+        # Abre pelo ID (Mais seguro)
+        sh = gc.open_by_key(id_planilha)
         
         try: sh.worksheet("usuarios")
         except: sh.add_worksheet("usuarios", 100, 5).append_row(["usuario", "senha_acesso", "criado_em"])
@@ -110,13 +97,18 @@ def preparar_planilha(gc, email):
         except: sh.add_worksheet("registros", 1000, 10).append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
         return sh
     except Exception as e: 
-        st.error("❌ ACESSO NEGADO À PLANILHA")
+        st.error("❌ ACESSO NEGADO PELO GOOGLE")
         st.warning(f"""
-        **O robô conectou, mas não entrou na planilha.**
+        **O Robô tentou abrir a planilha de ID:** `{id_planilha}`
         
-        **CHECKLIST:**
-        1. O link colado é da planilha NOVA?
-        2. Você compartilhou com: **{email}**?
+        **Mas o Google disse: "Não conheço esse robô".**
+        
+        **SOLUÇÃO FINAL:**
+        1. Copie este email: `{email}`
+        2. Vá na planilha.
+        3. Clique em **Compartilhar**.
+        4. Se o email já estiver lá, **REMOVA** e **ADICIONE DE NOVO**.
+        5. Certifique-se de que está como **EDITOR**.
         """)
         st.stop()
 
