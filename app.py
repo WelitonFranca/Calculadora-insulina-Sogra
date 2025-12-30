@@ -6,56 +6,53 @@ import time
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
-# --- 1. CONFIGURAÇÃO ---
+# 
+# 👇 ÁREA DE CONFIGURAÇÃO DA CHAVE
+# 
+# 1. Mantenha as três aspas (""") do começo e do fim.
+# 2. Apague o texto de aviso dentro.
+# 3. Cole todo o conteúdo do seu arquivo JSON nesse espaço.
+
+CHAVE_MESTRA = """
+COLE_O_CONTEUDO_DO_SEU_ARQUIVO_JSON_AQUI
+"""
+# 
+
+
+# --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO BLINDADA (AUTOMÁTICA OU UPLOAD) ---
+# --- 2. CONEXÃO AUTOMÁTICA (SEM UPLOAD) ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
-    # TENTATIVA 1: BUSCAR NO COFRE (SECRETS)
-    # Se você configurou no painel do Streamlit, ele conecta direto aqui.
-    if "gcp_service_account" in st.secrets:
-        try:
-            # O Streamlit já converte o TOML do secrets para dicionário
-            info_conta = st.secrets["gcp_service_account"]
-            
-            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
-            gc = gspread.authorize(creds)
-            email = info_conta.get("client_email")
-            
-            st.session_state.conexao_google = (gc, email)
-            return st.session_state.conexao_google
-        except Exception as e:
-            st.error(f"Erro na configuração dos Secrets: {e}")
-
-    # TENTATIVA 2: UPLOAD DE ARQUIVO (BACKUP)
-    st.markdown("### 🔐 Conexão")
-    st.info("Configuração automática não encontrada. Para não pedir mais o arquivo, configure os 'Secrets' no painel do App.")
-    arquivo = st.file_uploader("Arraste o arquivo JSON aqui", type="json", key="reupload_final_v14")
-    
-    if arquivo:
-        try:
-            info_conta = json.load(arquivo)
-            escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
-            gc = gspread.authorize(creds)
-            email = info_conta.get("client_email")
-            st.session_state.conexao_google = (gc, email)
-            st.success("✅ Conectado!")
-            time.sleep(1)
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Erro: {e}")
+    # Tenta ler a chave que você colou acima
+    try:
+        if "COLE_O_CONTEUDO" in CHAVE_MESTRA:
+            st.error("⚠️ VOCÊ PRECISA COLAR A CHAVE NO CÓDIGO!")
+            st.info("Abra o arquivo 'app.py', procure a variável 'CHAVE_MESTRA' no topo e cole o conteúdo do seu JSON lá.")
             st.stop()
-    else:
-        st.stop()
-    
-    return st.session_state.conexao_google
 
-# --- 3. PREPARAÇÃO ---
+        info_conta = json.loads(CHAVE_MESTRA)
+        
+        escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
+        gc = gspread.authorize(creds)
+        email = info_conta.get("client_email")
+        
+        st.session_state.conexao_google = (gc, email)
+        return st.session_state.conexao_google
+
+    except json.JSONDecodeError:
+        st.error("❌ Erro ao ler a chave colada.")
+        st.warning("Verifique se você copiou o JSON completo, incluindo as chaves { e }.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Erro de conexão: {e}")
+        st.stop()
+
+# --- 3. PREPARAÇÃO DA PLANILHA ---
 def preparar_planilha(gc, email):
     try: sh = gc.open("banco_dados_insulina")
     except: st.error("❌ PLANILHA NÃO ENCONTRADA"); st.stop()
@@ -68,6 +65,8 @@ def preparar_planilha(gc, email):
 # --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
+    
+    # Conecta automaticamente usando a CHAVE_MESTRA
     gc, email_robo = conectar_seguro()
     sh = preparar_planilha(gc, email_robo)
 
@@ -135,12 +134,15 @@ def main():
                     ws = sh.worksheet("registros")
                     ws.append_row([st.session_state.usuario_atual, data_formatada, glic, carbos, icr, dose])
                     
+                    # AQUI ESTAVA O ERRO, AGORA CORRIGIDO COM O SINAL < CORRETO
+                    msg_status = "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
+
                     st.session_state.ultimo_resultado = {
                         "glic": glic, "alvo": alvo, "fator": fator,
                         "carbos": carbos, "icr": icr,
                         "correcao": correcao, "bolus": bolus_alim,
                         "total": total, "dose": dose,
-                        "msg": "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic &lt; 70 else "Glicemia OK"
+                        "msg": msg_status
                     }
                     
                     st.toast("💾 Salvando e atualizando...")
