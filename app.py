@@ -3,18 +3,14 @@ import pandas as pd
 import gspread
 import json
 import time
-import re # Importando ferramenta de limpeza de texto
+import re
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
 # 
 # 👇 ÁREA DE CONFIGURAÇÃO DA CHAVE
 # 
-# INSTRUÇÃO:
-# 1. Mantenha as três aspas (""") do começo e do fim.
-# 2. Cole o conteúdo do JSON no meio.
-
-CHAVE_MESTRA = """
+CHAVE_MESTRA = r"""
 {
   "type": "service_account",
   "project_id": "insulina-app-v2",
@@ -29,31 +25,26 @@ CHAVE_MESTRA = """
   "universe_domain": "googleapis.com"
 }
 """
-
 # 
 
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO AUTOMÁTICA (COM CORREÇÃO DE ERROS) ---
+# --- 2. CONEXÃO AUTOMÁTICA ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
-    # Tenta ler a chave que você colou acima
     try:
         if "COLE_O_CONTEUDO" in CHAVE_MESTRA:
             st.error("⚠️ VOCÊ PRECISA COLAR A CHAVE NO CÓDIGO!")
-            st.info("Abra o arquivo 'app.py' e cole o conteúdo do JSON na variável CHAVE_MESTRA.")
             st.stop()
 
-        # --- TENTATIVA 1: Modo Relaxado (Aceita quebras de linha do celular) ---
+        # Tenta limpar e ler o JSON
         try:
             info_conta = json.loads(CHAVE_MESTRA, strict=False)
         except:
-            # --- TENTATIVA 2: Limpeza Pesada (Remove Enters proibidos) ---
-            # Se falhou, tentamos remover as quebras de linha que o celular criou
             texto_limpo = CHAVE_MESTRA.replace('\n', ' ').replace('\r', '')
             info_conta = json.loads(texto_limpo, strict=False)
         
@@ -65,29 +56,38 @@ def conectar_seguro():
         st.session_state.conexao_google = (gc, email)
         return st.session_state.conexao_google
 
-    except json.JSONDecodeError as e:
-        st.error("❌ O texto colado ainda está com problemas.")
-        st.warning("Tente copiar o arquivo JSON novamente. Certifique-se de pegar desde a primeira chave '{' até a última '}'.")
-        st.stop()
     except Exception as e:
-        st.error(f"❌ Erro de conexão: {e}")
+        st.error(f"❌ Erro na Chave: {e}")
         st.stop()
 
-# --- 3. PREPARAÇÃO DA PLANILHA ---
+# --- 3. PREPARAÇÃO DA PLANILHA (COM AJUDA DE ERRO) ---
 def preparar_planilha(gc, email):
-    try: sh = gc.open("banco_dados_insulina")
-    except: st.error("❌ PLANILHA NÃO ENCONTRADA"); st.stop()
-    try: sh.worksheet("usuarios")
-    except: sh.add_worksheet("usuarios", 100, 5).append_row(["usuario", "senha", "criado_em"])
-    try: sh.worksheet("registros")
-    except: sh.add_worksheet("registros", 1000, 10).append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
-    return sh
+    try: 
+        sh = gc.open("banco_dados_insulina")
+        # Verifica se as abas existem
+        try: sh.worksheet("usuarios")
+        except: sh.add_worksheet("usuarios", 100, 5).append_row(["usuario", "senha", "criado_em"])
+        try: sh.worksheet("registros")
+        except: sh.add_worksheet("registros", 1000, 10).append_row(["usuario", "data", "glicemia", "carbos", "icr", "dose"])
+        return sh
+    except: 
+        st.error("❌ PLANILHA NÃO ENCONTRADA OU SEM PERMISSÃO")
+        st.warning(f"""
+        O sistema conectou, mas não conseguiu abrir a planilha.
+        
+        **SOLUÇÃO:**
+        1. Vá no Google Drive e abra a planilha **banco_dados_insulina**.
+        2. Clique em **Compartilhar**.
+        3. Adicione este email abaixo como **Editor**:
+        
+        👉 **{email}**
+        """)
+        st.stop()
 
 # --- 4. APP PRINCIPAL ---
 def main():
     st.title("💉 Controle de Insulina")
     
-    # Conecta automaticamente
     gc, email_robo = conectar_seguro()
     sh = preparar_planilha(gc, email_robo)
 
