@@ -13,8 +13,7 @@ from datetime import datetime, timedelta, timezone
 # 2. Apague o texto de aviso dentro.
 # 3. Cole todo o conteúdo do seu arquivo JSON nesse espaço.
 
-CHAVE_MESTRA = """{
-  "type": "service_account",
+CHAVE_MESTRA = """{  "type": "service_account",
   "project_id": "insulina-app-v2",
   "private_key_id": "c61fedf8f10ce140776ce5b174938405cadcf8bc",
   "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCnH9y/zmfYk01z\n6yUfH0YXHP/9sSi94SOVLfZdKmE+eYbYgEPvogut92Rp+claAEOeoa3Tg9J/QoHg\nmVx9O6Aga4Dv+9yvo33hFB4K7XTDiUklD4jsiTFaoGLjFKF9iagIfn7NXt6f7Mei\ngFt4vZIYrbhZ6/i04FiJJBz4Gi87TG13mUi6gapiTJcJzptbTOCk8NrevpggtZA4\nZldDnoUVSzyElBgGSOveZOpNw/IBx0McX43ONQIJqzAU7baYFqtsagwKuXFsph2V\nmnGmG+2ySgjn7eM5YR/zg66kKYgi8hXtMOd32d5I/YR8j/LNN+nxrCsWE9vZsUX4\ntLli6NR5AgMBAAECggEACK7FOGJb/xKlGCAH/1JPwQjozFiBTD8nivs2tN+sKnOk\nI7ijPu6RcoX7Pa3EbiR8HuBZwHbVb3boOj/hgCCiSLjpG56/WBEzi6dwyaLNWZDW\n/+HLHHXivml9hbx3SOdHV3yh8B/NC2xA8XJ/fhoEPnu9C4/wzY3nz6U0i5fJqygP\neOwc5q2vnwMQ9uJ8ky9r+QRUv5lJKOjncEE0JY7L6vVDytp4KvOeLqPgl4OzW3sU\nO+w2C+24ZFRSqf2ZVwrxIhmInT3NRLrbrmWp+gvb5zgbQ8OYXWUGT54m6+egaEqA\nYjzXCetRPhndh766aFQigg4yd6zZNzp5Lb1LdQFvsQKBgQDWKddSii+7zj7rsbfM\nMXJtmPZ0uApqpOR8LgKd3hwBHRXHO0p0RLHG1WCEmfhv6VZurE9wR4U1CDsovSmK\nfWLOGOe7qtxRY5taehSXIR4gCjKDzvsYNIjMrZK+EHSjUUSKX81FuMyC5btaXTsk\nwmbv7EzveWLOltSC/NL9z8uC6QKBgQDHxaLFyzm6RXg4MMec5d3Ih2INNgekqt6A\nRMxyhe3FRyZuJOMfHVytYCdVAnvPmVMC/ypZKDuOtcPmRl58cvM7v2hbzQf9cBWy\n85KurfFV6qGLXc+RZhaJMJweA3BzaB0glPAf9vH6HLdXiTieCBGe9yfgDdxgcI1Q\nxPD9eygrEQKBgQCEQWKPvnar7Do/I4j1uLOJqyTH/7+vDBVt+pvzEe8JYQTJ/HuG\nQcXnnG32dX9O3TJbNl34YLKKhYLDLc4xkC0sSYUSB/n26SRPQ4Tjr7gC4UlAzNmT\noR26CJbOeSsOkGlbar5BiFYDoAuLSnfzw3n+QFdiq/uwyMSD/83soB51wQKBgQCk\nBPCP1TugZElAWUyK1XAypHUsw5+i42eriNETdkKyJqi25jJT6ZeeAcRJV7Cv0gMG\nAtqSOSYtFa+x8TTCmN57v7u/I6fbvZsTQki8grQTBoF8G5nAl0EJgo+rVMeO+Xxw\ns9gzZl1mLQ2bIV8K4TUWf3aNztORmtdr6Uaz19ozAQKBgQCBwepmF7kRqrXhFJTj\nw/dYBkMQcfRv7U7poSVw6PM6hdZ8GipKXqpBe1S94PzR0hQs0l16BJO3+Mg9YpKv\nwl8tLo5p98DKch3ONgzpjQpt/F6/HusaMrO/1tq6l1BhTTtauyU63v5E3CQOITyx\nqfeDDhZx5I+PbYI80yNvnG8CBQ==\n-----END PRIVATE KEY-----\n",
@@ -25,8 +24,7 @@ CHAVE_MESTRA = """{
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
-}
-"""
+}"""
 # 
 
 
