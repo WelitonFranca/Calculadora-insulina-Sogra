@@ -9,11 +9,14 @@ from datetime import datetime, timedelta, timezone
 # 
 # 👇 ÁREA DE CONFIGURAÇÃO DA CHAVE
 # 
+# INSTRUÇÃO:
 # 1. Mantenha as três aspas (""") do começo e do fim.
-# 2. Apague o texto de aviso dentro.
-# 3. Cole todo o conteúdo do seu arquivo JSON nesse espaço.
+# 2. Cole o conteúdo do JSON no meio.
+# 3. O texto DEVE começar com { e terminar com }.
 
-CHAVE_MESTRA = """{  "type": "service_account",
+CHAVE_MESTRA = """
+{
+  "type": "service_account",
   "project_id": "insulina-app-v2",
   "private_key_id": "c61fedf8f10ce140776ce5b174938405cadcf8bc",
   "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCnH9y/zmfYk01z\n6yUfH0YXHP/9sSi94SOVLfZdKmE+eYbYgEPvogut92Rp+claAEOeoa3Tg9J/QoHg\nmVx9O6Aga4Dv+9yvo33hFB4K7XTDiUklD4jsiTFaoGLjFKF9iagIfn7NXt6f7Mei\ngFt4vZIYrbhZ6/i04FiJJBz4Gi87TG13mUi6gapiTJcJzptbTOCk8NrevpggtZA4\nZldDnoUVSzyElBgGSOveZOpNw/IBx0McX43ONQIJqzAU7baYFqtsagwKuXFsph2V\nmnGmG+2ySgjn7eM5YR/zg66kKYgi8hXtMOd32d5I/YR8j/LNN+nxrCsWE9vZsUX4\ntLli6NR5AgMBAAECggEACK7FOGJb/xKlGCAH/1JPwQjozFiBTD8nivs2tN+sKnOk\nI7ijPu6RcoX7Pa3EbiR8HuBZwHbVb3boOj/hgCCiSLjpG56/WBEzi6dwyaLNWZDW\n/+HLHHXivml9hbx3SOdHV3yh8B/NC2xA8XJ/fhoEPnu9C4/wzY3nz6U0i5fJqygP\neOwc5q2vnwMQ9uJ8ky9r+QRUv5lJKOjncEE0JY7L6vVDytp4KvOeLqPgl4OzW3sU\nO+w2C+24ZFRSqf2ZVwrxIhmInT3NRLrbrmWp+gvb5zgbQ8OYXWUGT54m6+egaEqA\nYjzXCetRPhndh766aFQigg4yd6zZNzp5Lb1LdQFvsQKBgQDWKddSii+7zj7rsbfM\nMXJtmPZ0uApqpOR8LgKd3hwBHRXHO0p0RLHG1WCEmfhv6VZurE9wR4U1CDsovSmK\nfWLOGOe7qtxRY5taehSXIR4gCjKDzvsYNIjMrZK+EHSjUUSKX81FuMyC5btaXTsk\nwmbv7EzveWLOltSC/NL9z8uC6QKBgQDHxaLFyzm6RXg4MMec5d3Ih2INNgekqt6A\nRMxyhe3FRyZuJOMfHVytYCdVAnvPmVMC/ypZKDuOtcPmRl58cvM7v2hbzQf9cBWy\n85KurfFV6qGLXc+RZhaJMJweA3BzaB0glPAf9vH6HLdXiTieCBGe9yfgDdxgcI1Q\nxPD9eygrEQKBgQCEQWKPvnar7Do/I4j1uLOJqyTH/7+vDBVt+pvzEe8JYQTJ/HuG\nQcXnnG32dX9O3TJbNl34YLKKhYLDLc4xkC0sSYUSB/n26SRPQ4Tjr7gC4UlAzNmT\noR26CJbOeSsOkGlbar5BiFYDoAuLSnfzw3n+QFdiq/uwyMSD/83soB51wQKBgQCk\nBPCP1TugZElAWUyK1XAypHUsw5+i42eriNETdkKyJqi25jJT6ZeeAcRJV7Cv0gMG\nAtqSOSYtFa+x8TTCmN57v7u/I6fbvZsTQki8grQTBoF8G5nAl0EJgo+rVMeO+Xxw\ns9gzZl1mLQ2bIV8K4TUWf3aNztORmtdr6Uaz19ozAQKBgQCBwepmF7kRqrXhFJTj\nw/dYBkMQcfRv7U7poSVw6PM6hdZ8GipKXqpBe1S94PzR0hQs0l16BJO3+Mg9YpKv\nwl8tLo5p98DKch3ONgzpjQpt/F6/HusaMrO/1tq6l1BhTTtauyU63v5E3CQOITyx\nqfeDDhZx5I+PbYI80yNvnG8CBQ==\n-----END PRIVATE KEY-----\n",
@@ -24,26 +27,37 @@ CHAVE_MESTRA = """{  "type": "service_account",
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/robo-insulina%40insulina-app-v2.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
-}"""
+}
+"""
+
 # 
 
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Diário Insulina", layout="centered")
 
-# --- 2. CONEXÃO AUTOMÁTICA (SEM UPLOAD) ---
+# --- 2. CONEXÃO AUTOMÁTICA (COM LIMPEZA DE TEXTO) ---
 def conectar_seguro():
     if 'conexao_google' in st.session_state:
         return st.session_state.conexao_google
 
     # Tenta ler a chave que você colou acima
     try:
+        # Verifica se o usuário esqueceu de colar
         if "COLE_O_CONTEUDO" in CHAVE_MESTRA:
             st.error("⚠️ VOCÊ PRECISA COLAR A CHAVE NO CÓDIGO!")
-            st.info("Abra o arquivo 'app.py', procure a variável 'CHAVE_MESTRA' no topo e cole o conteúdo do seu JSON lá.")
+            st.info("Abra o arquivo 'app.py', vá até o topo e substitua o texto 'COLE_O_CONTEUDO...' pelo texto do seu arquivo JSON.")
             st.stop()
 
-        info_conta = json.loads(CHAVE_MESTRA)
+        # --- TENTATIVA DE LIMPEZA DO TEXTO ---
+        # Às vezes o copy-paste traz caracteres invisíveis ou espaços extras.
+        chave_limpa = CHAVE_MESTRA.strip() # Remove espaços do começo e fim
+        
+        # Se por acaso o usuário colou aspas extras no começo/fim, removemos
+        if chave_limpa.startswith("'") and chave_limpa.endswith("'"):
+            chave_limpa = chave_limpa[1:-1]
+        
+        info_conta = json.loads(chave_limpa)
         
         escopos = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(info_conta, scopes=escopos)
@@ -53,9 +67,13 @@ def conectar_seguro():
         st.session_state.conexao_google = (gc, email)
         return st.session_state.conexao_google
 
-    except json.JSONDecodeError:
-        st.error("❌ Erro ao ler a chave colada.")
-        st.warning("Verifique se você copiou o JSON completo, incluindo as chaves { e }.")
+    except json.JSONDecodeError as e:
+        st.error("❌ Erro de Formatação no JSON colado.")
+        st.markdown(f"**O computador disse:** `{e}`")
+        st.warning("""
+        **Dica:** O texto que você colou deve começar com **{** e terminar com **}**.
+        Verifique se você não apagou uma dessas chaves sem querer.
+        """)
         st.stop()
     except Exception as e:
         st.error(f"❌ Erro de conexão: {e}")
@@ -75,7 +93,7 @@ def preparar_planilha(gc, email):
 def main():
     st.title("💉 Controle de Insulina")
     
-    # Conecta automaticamente usando a CHAVE_MESTRA
+    # Conecta automaticamente
     gc, email_robo = conectar_seguro()
     sh = preparar_planilha(gc, email_robo)
 
@@ -143,7 +161,6 @@ def main():
                     ws = sh.worksheet("registros")
                     ws.append_row([st.session_state.usuario_atual, data_formatada, glic, carbos, icr, dose])
                     
-                    # AQUI ESTAVA O ERRO, AGORA CORRIGIDO COM O SINAL < CORRETO
                     msg_status = "Glicemia Alta" if glic > alvo + 40 else "Hipoglicemia" if glic < 70 else "Glicemia OK"
 
                     st.session_state.ultimo_resultado = {
